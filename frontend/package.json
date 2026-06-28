@@ -1,0 +1,27 @@
+{
+  "name": "@hazir/frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "start": "react-native start",
+    "test": "jest",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@hazir/shared": "file:../shared",
+    "react": "18.2.0",
+    "react-native": "0.74.1",
+    "zustand": "^4.5.2",
+    "axios": "^1.6.8",
+    "react-native-reanimated": "^3.11.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.20.0",
+    "@babel/preset-env": "^7.20.0",
+    "@types/react": "^18.2.6",
+    "@types/react-test-renderer": "^18.0.0",
+    "typescript": "^5.4.5"
+  }
+}

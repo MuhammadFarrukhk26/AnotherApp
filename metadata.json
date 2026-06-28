@@ -1,0 +1,6 @@
+{
+  "name": "Hazir",
+  "description": "Instant skilled worker hiring and home service marketplace platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
