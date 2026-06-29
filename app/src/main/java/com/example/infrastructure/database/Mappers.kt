@@ -87,6 +87,7 @@ fun BookingEntity.toDomain(): Booking = Booking(
     review = review,
     beforePhoto = beforePhoto,
     afterPhoto = afterPhoto,
+    paymentMethod = paymentMethod,
     createdAt = createdAt
 )
 
@@ -112,6 +113,7 @@ fun Booking.toEntity(): BookingEntity = BookingEntity(
     review = review,
     beforePhoto = beforePhoto,
     afterPhoto = afterPhoto,
+    paymentMethod = paymentMethod,
     createdAt = createdAt
 )
 

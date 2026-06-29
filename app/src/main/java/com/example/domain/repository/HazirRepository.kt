@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 interface HazirRepository {
     // User Operations
     suspend fun getUserById(id: String): User?
+    suspend fun getUserByPhone(phone: String): User?
     fun getUserByIdFlow(id: String): Flow<User?>
     fun getAllWorkersFlow(): Flow<List<User>>
     suspend fun getAvailableWorkersByCategory(category: String): List<User>

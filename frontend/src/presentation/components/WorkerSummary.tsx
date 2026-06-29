@@ -8,6 +8,7 @@ interface WorkerSummaryProps {
   workerRating?: number;
   workerJobsCount?: number;
   avatarUrl?: string;
+  onMessagePressed?: () => void;
 }
 
 export const WorkerSummary: React.FC<WorkerSummaryProps> = ({
@@ -17,6 +18,7 @@ export const WorkerSummary: React.FC<WorkerSummaryProps> = ({
   workerRating = 4.9,
   workerJobsCount = 124,
   avatarUrl = 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200', // Beautiful professional portrait
+  onMessagePressed,
 }) => {
   const handleCall = () => {
     Alert.alert(
@@ -27,11 +29,15 @@ export const WorkerSummary: React.FC<WorkerSummaryProps> = ({
   };
 
   const handleMessage = () => {
-    Alert.alert(
-      'Live Secure Chat',
-      `Opening messaging session with ${workerName} [ID: ${workerId}]...\n\n(In-app encrypted web socket routing active)`,
-      [{ text: 'Open Chat', style: 'default' }, { text: 'Cancel', style: 'cancel' }]
-    );
+    if (onMessagePressed) {
+      onMessagePressed();
+    } else {
+      Alert.alert(
+        'Live Secure Chat',
+        `Opening messaging session with ${workerName} [ID: ${workerId}]...\n\n(In-app encrypted web socket routing active)`,
+        [{ text: 'Open Chat', style: 'default' }, { text: 'Cancel', style: 'cancel' }]
+      );
+    }
   };
 
   return (

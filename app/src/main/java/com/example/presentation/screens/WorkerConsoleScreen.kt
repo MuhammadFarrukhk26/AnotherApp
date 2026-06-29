@@ -119,6 +119,16 @@ fun WorkerConsoleScreen(
                             )
                         }
                     }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = { viewModel.logout() },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color.Red.copy(alpha = 0.1f))
+                    ) {
+                        Icon(Icons.Default.Logout, contentDescription = "Log Out", tint = Color.Red, modifier = Modifier.size(18.dp))
+                    }
                     Spacer(modifier = Modifier.width(12.dp))
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

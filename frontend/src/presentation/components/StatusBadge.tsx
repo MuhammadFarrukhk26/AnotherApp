@@ -75,6 +75,15 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
           dotColor: '#22C55E', // Green 500
           icon: '🎉',
         };
+      case 'CANCELLED':
+        return {
+          label: 'Booking Cancelled',
+          backgroundColor: '#FEF2F2', // Red 50
+          textColor: '#B91C1C', // Red 700
+          borderColor: '#FEE2E2', // Red 200
+          dotColor: '#EF4444', // Red 500
+          icon: '❌',
+        };
       default:
         return {
           label: currentStatus,

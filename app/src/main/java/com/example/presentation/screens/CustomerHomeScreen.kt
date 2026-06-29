@@ -13,6 +13,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -139,21 +141,39 @@ fun CustomerHomeScreen(
 
                     Spacer(modifier = Modifier.width(8.dp))
 
-                    // User Avatar
-                    Box(
-                        modifier = Modifier
-                            .padding(end = 12.dp)
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(NavySecondary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = userProfile?.name?.take(1) ?: "H",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
-                        )
+                    // User Avatar with Logout Menu
+                    var showUserMenu by remember { mutableStateOf(false) }
+                    Box {
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 12.dp)
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(NavySecondary)
+                                .clickable { showUserMenu = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = userProfile?.name?.take(1) ?: "H",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showUserMenu,
+                            onDismissRequest = { showUserMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Log Out Account", color = Color.Red) },
+                                onClick = {
+                                    showUserMenu = false
+                                    viewModel.logout()
+                                },
+                                leadingIcon = { Icon(Icons.Default.Logout, contentDescription = null, tint = Color.Red) }
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -251,8 +271,9 @@ fun CustomerHomeScreen(
             showBookingSheetCategory?.let { category ->
                 BookingFormDialog(
                     category = category,
+                    userBalance = userProfile?.walletBalance ?: 5000.0,
                     onDismiss = { showBookingSheetCategory = null },
-                    onConfirmBooking = { address, description, price, date, time ->
+                    onConfirmBooking = { address, description, price, date, time, paymentMethod ->
                         viewModel.requestBooking(
                             categoryId = category.id,
                             categoryName = category.name,
@@ -260,7 +281,8 @@ fun CustomerHomeScreen(
                             description = description,
                             estimatedPrice = price,
                             date = date,
-                            time = time
+                            time = time,
+                            paymentMethod = paymentMethod
                         )
                         showBookingSheetCategory = null
                         // Switch immediately to Booking List tab so they see progress
@@ -284,13 +306,18 @@ fun HomeTabContent(
     onNavigateToAi: () -> Unit,
     onTrackBooking: (Int) -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.TopCenter
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .widthIn(max = 600.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
         // Greeting Header
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -420,45 +447,61 @@ fun HomeTabContent(
         }
 
         // Grid of services categories
-        Box(modifier = Modifier.height(280.dp)) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(4),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val columns = if (maxWidth > 600.dp) 6 else 4
+            val chunkedCategories = categories.chunked(columns)
+
+            Column(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxWidth()
             ) {
-                items(categories) { category ->
-                    val icon = getCategoryIcon(category.iconName)
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier
-                            .clickable { onCategoryClick(category) }
-                            .testTag("category_${category.id}")
+                chunkedCategories.forEach { rowCategories ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(OrangePrimary.copy(alpha = 0.08f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = category.name,
-                                tint = OrangePrimary,
-                                modifier = Modifier.size(28.dp)
-                            )
+                        rowCategories.forEach { category ->
+                            val icon = getCategoryIcon(category.iconName)
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { onCategoryClick(category) }
+                                    .testTag("category_${category.id}")
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(OrangePrimary.copy(alpha = 0.08f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = category.name,
+                                        tint = OrangePrimary,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = category.name,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = NavySecondary,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = category.name,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = NavySecondary,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        // Pad out empty spaces if the row isn't fully filled
+                        val emptySpaces = columns - rowCategories.size
+                        if (emptySpaces > 0) {
+                            repeat(emptySpaces) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
+                        }
                     }
                 }
             }
@@ -512,6 +555,7 @@ fun HomeTabContent(
             }
         }
     }
+}
 }
 
 // ==========================================
@@ -879,31 +923,68 @@ fun WalletTabContent(
 }
 
 // ==========================================
-// SUB-FORM: BOOK HANDYMAN SHEET/DIALOG
+// SUB-FORM: BOOK HANDYMAN SHEET/DIALOG WITH SECURE PAYMENT SELECTOR
 // ==========================================
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookingFormDialog(
     category: ServiceCategory,
+    userBalance: Double,
     onDismiss: () -> Unit,
-    onConfirmBooking: (String, String, Double, String, String) -> Unit
+    onConfirmBooking: (String, String, Double, String, String, String) -> Unit
 ) {
     var address by remember { mutableStateOf("F-7 Markaz, Street 4, House 12A, Islamabad") }
     var description by remember { mutableStateOf("") }
     var date by remember { mutableStateOf("Today, June 28") }
     var time by remember { mutableStateOf("As soon as possible") }
 
+    // Payment selection states
+    var paymentMethod by remember { mutableStateOf("CASH") } // "CASH", "CARD", "WALLET"
+    var walletType by remember { mutableStateOf("HAZIR") } // "HAZIR", "EASYPAISA", "JAZZCASH"
+
+    // Card Details
+    var cardNumber by remember { mutableStateOf("") }
+    var cardExpiry by remember { mutableStateOf("") }
+    var cardCvv by remember { mutableStateOf("") }
+    var cardName by remember { mutableStateOf("") }
+
+    // External Wallet details
+    var walletPhone by remember { mutableStateOf("0300-1234567") }
+    var isOtpRequested by remember { mutableStateOf(false) }
+    var otpCode by remember { mutableStateOf("") }
+    var isOtpVerified by remember { mutableStateOf(false) }
+
+    // Validate checkout form before enabling booking submission
+    val isFormValid = description.trim().isNotEmpty() && when (paymentMethod) {
+        "CASH" -> true
+        "CARD" -> cardNumber.length >= 16 && cardExpiry.length >= 4 && cardCvv.length >= 3 && cardName.isNotBlank()
+        "WALLET" -> {
+            if (walletType == "HAZIR") {
+                userBalance >= category.basePrice
+            } else {
+                isOtpVerified
+            }
+        }
+        else -> false
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
         confirmButton = {
             Button(
                 onClick = {
-                    onConfirmBooking(address, description, category.basePrice, date, time)
+                    val finalPaymentMethod = when (paymentMethod) {
+                        "CARD" -> "CARD"
+                        "WALLET" -> if (walletType == "HAZIR") "WALLET" else walletType
+                        else -> "CASH"
+                    }
+                    onConfirmBooking(address, description, category.basePrice, date, time, finalPaymentMethod)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                enabled = description.trim().isNotEmpty()
+                enabled = isFormValid
             ) {
-                Text("Confirm Instant Hiring", fontWeight = FontWeight.Bold)
+                Text("Confirm Booking & Pay", fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
@@ -926,7 +1007,12 @@ fun BookingFormDialog(
             }
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
                 Text("Describe the issue clearly so the worker brings the correct equipment.", fontSize = 12.sp, color = Color.Gray)
 
                 // Description field
@@ -995,6 +1081,418 @@ fun BookingFormDialog(
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text("Transparent", fontSize = 10.sp, color = Color(0xFF33691E), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(Color.LightGray.copy(alpha = 0.5f))
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // Payment Method Selector
+                Text("Secure Payment Method", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = NavySecondary)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // COD option
+                    Card(
+                        modifier = Modifier
+                            .weight(1f)
+                            .border(
+                                width = 1.5.dp,
+                                color = if (paymentMethod == "CASH") OrangePrimary else Color.LightGray.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable { paymentMethod = "CASH" },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (paymentMethod == "CASH") OrangePrimary.copy(alpha = 0.08f) else Color.White
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Payments,
+                                contentDescription = null,
+                                tint = if (paymentMethod == "CASH") OrangePrimary else Color.Gray,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                "Cash / COD",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (paymentMethod == "CASH") OrangePrimary else Color.Gray,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+
+                    // Card option
+                    Card(
+                        modifier = Modifier
+                            .weight(1f)
+                            .border(
+                                width = 1.5.dp,
+                                color = if (paymentMethod == "CARD") OrangePrimary else Color.LightGray.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable { paymentMethod = "CARD" },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (paymentMethod == "CARD") OrangePrimary.copy(alpha = 0.08f) else Color.White
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CreditCard,
+                                contentDescription = null,
+                                tint = if (paymentMethod == "CARD") OrangePrimary else Color.Gray,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                "Credit Card",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (paymentMethod == "CARD") OrangePrimary else Color.Gray,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+
+                    // Wallet option
+                    Card(
+                        modifier = Modifier
+                            .weight(1f)
+                            .border(
+                                width = 1.5.dp,
+                                color = if (paymentMethod == "WALLET") OrangePrimary else Color.LightGray.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .clickable { paymentMethod = "WALLET" },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (paymentMethod == "WALLET") OrangePrimary.copy(alpha = 0.08f) else Color.White
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AccountBalanceWallet,
+                                contentDescription = null,
+                                tint = if (paymentMethod == "WALLET") OrangePrimary else Color.Gray,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                "Wallet",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (paymentMethod == "WALLET") OrangePrimary else Color.Gray,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
+                // Dynamic detail views based on selection
+                when (paymentMethod) {
+                    "CASH" -> {
+                        Text(
+                            "Pay PKR ${category.basePrice} in cash to the service provider upon completion of work. No online pre-payment required.",
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+                    "CARD" -> {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFF8FAFC), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0F172A),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text("Secure 256-Bit SSL Checkout", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                            }
+
+                            OutlinedTextField(
+                                value = cardName,
+                                onValueChange = { cardName = it },
+                                label = { Text("Cardholder Name", fontSize = 11.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary),
+                                singleLine = true
+                            )
+
+                            OutlinedTextField(
+                                value = cardNumber,
+                                onValueChange = { if (it.length <= 16 && it.all { char -> char.isDigit() }) cardNumber = it },
+                                label = { Text("Card Number", fontSize = 11.sp) },
+                                placeholder = { Text("4111 2222 3333 4444") },
+                                trailingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.CreditCard,
+                                        contentDescription = null,
+                                        tint = OrangePrimary
+                                    )
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary),
+                                singleLine = true
+                            )
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedTextField(
+                                    value = cardExpiry,
+                                    onValueChange = { if (it.length <= 5) cardExpiry = it },
+                                    label = { Text("Expiry (MM/YY)", fontSize = 11.sp) },
+                                    placeholder = { Text("12/28") },
+                                    modifier = Modifier.weight(1.5f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary),
+                                    singleLine = true
+                                )
+                                OutlinedTextField(
+                                    value = cardCvv,
+                                    onValueChange = { if (it.length <= 4 && it.all { char -> char.isDigit() }) cardCvv = it },
+                                    label = { Text("CVV", fontSize = 11.sp) },
+                                    placeholder = { Text("123") },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary),
+                                    singleLine = true
+                                )
+                            }
+                        }
+                    }
+                    "WALLET" -> {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFF8FAFC), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Text("Choose Wallet Provider", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+
+                            // 3 Wallet choices with custom radio button indicators
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                // Hazir Wallet
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (walletType == "HAZIR") OrangePrimary.copy(alpha = 0.08f) else Color.Transparent)
+                                        .clickable { walletType = "HAZIR" }
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val isSelected = walletType == "HAZIR"
+                                    Box(
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .border(2.dp, if (isSelected) OrangePrimary else Color.Gray, CircleShape)
+                                            .padding(3.dp)
+                                    ) {
+                                        if (isSelected) {
+                                            Box(modifier = Modifier.fillMaxSize().clip(CircleShape).background(OrangePrimary))
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("Hazir In-App Balance", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                                        Text(
+                                            "Current Balance: PKR $userBalance", 
+                                            fontSize = 11.sp, 
+                                            color = if (userBalance >= category.basePrice) Color(0xFF33691E) else Color.Red,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+
+                                // EasyPaisa
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (walletType == "EASYPAISA") OrangePrimary.copy(alpha = 0.08f) else Color.Transparent)
+                                        .clickable { walletType = "EASYPAISA" }
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val isSelected = walletType == "EASYPAISA"
+                                    Box(
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .border(2.dp, if (isSelected) OrangePrimary else Color.Gray, CircleShape)
+                                            .padding(3.dp)
+                                    ) {
+                                        if (isSelected) {
+                                            Box(modifier = Modifier.fillMaxSize().clip(CircleShape).background(OrangePrimary))
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("EasyPaisa Mobile Wallet", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                                        Text("Direct secure handshake via EasyPaisa OTP", fontSize = 10.sp, color = Color.Gray)
+                                    }
+                                }
+
+                                // JazzCash
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (walletType == "JAZZCASH") OrangePrimary.copy(alpha = 0.08f) else Color.Transparent)
+                                        .clickable { walletType = "JAZZCASH" }
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    val isSelected = walletType == "JAZZCASH"
+                                    Box(
+                                        modifier = Modifier
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .border(2.dp, if (isSelected) OrangePrimary else Color.Gray, CircleShape)
+                                            .padding(3.dp)
+                                    ) {
+                                        if (isSelected) {
+                                            Box(modifier = Modifier.fillMaxSize().clip(CircleShape).background(OrangePrimary))
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("JazzCash Mobile Wallet", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                                        Text("Checkout safely via JazzCash SMS authentication", fontSize = 10.sp, color = Color.Gray)
+                                    }
+                                }
+                            }
+
+                            if (walletType == "HAZIR") {
+                                if (userBalance < category.basePrice) {
+                                    Text(
+                                        "⚠️ Insufficient Wallet Balance! Please top-up from your Wallet tab or select a different payment option.",
+                                        fontSize = 11.sp,
+                                        color = Color.Red,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                } else {
+                                    Text(
+                                        "✓ Funds secured! PKR ${category.basePrice} will be released to the worker upon job completion.",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF33691E),
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                            } else {
+                                // EasyPaisa/JazzCash SMS verification sub-flow
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = walletPhone,
+                                        onValueChange = { walletPhone = it },
+                                        label = { Text("${if (walletType == "EASYPAISA") "EasyPaisa" else "JazzCash"} Phone Number", fontSize = 11.sp) },
+                                        placeholder = { Text("03001234567") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary),
+                                        singleLine = true,
+                                        enabled = !isOtpVerified
+                                    )
+
+                                    if (!isOtpRequested && !isOtpVerified) {
+                                        Button(
+                                            onClick = { isOtpRequested = true },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            colors = ButtonDefaults.buttonColors(containerColor = NavySecondary),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text("Link Wallet & Send OTP", fontSize = 12.sp)
+                                        }
+                                    } else if (isOtpRequested && !isOtpVerified) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            Text("A 4-digit verification code has been sent via SMS to $walletPhone. Enter '1234' to verify.", fontSize = 11.sp, color = Color.Gray)
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                OutlinedTextField(
+                                                    value = otpCode,
+                                                    onValueChange = { if (it.length <= 4 && it.all { char -> char.isDigit() }) otpCode = it },
+                                                    label = { Text("OTP Code", fontSize = 10.sp) },
+                                                    placeholder = { Text("1234") },
+                                                    modifier = Modifier.weight(1.5f),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary),
+                                                    singleLine = true
+                                                )
+                                                Button(
+                                                    onClick = {
+                                                        if (otpCode == "1234" || otpCode.length >= 4) {
+                                                            isOtpVerified = true
+                                                            isOtpRequested = false
+                                                        }
+                                                    },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF33691E)),
+                                                    modifier = Modifier.weight(1f),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    enabled = otpCode.length >= 4
+                                                ) {
+                                                    Text("Verify", fontSize = 11.sp)
+                                                }
+                                            }
+                                        }
+                                    } else if (isOtpVerified) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .background(Color(0xFFE8F5E9), RoundedCornerShape(8.dp))
+                                                .padding(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = Color(0xFF2E7D32),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text("Wallet verified securely!", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

@@ -64,6 +64,7 @@ data class BookingEntity(
     val review: String? = null,
     val beforePhoto: String? = null,
     val afterPhoto: String? = null,
+    val paymentMethod: String = "CASH",
     val createdAt: Long = System.currentTimeMillis()
 )
 
@@ -96,6 +97,9 @@ data class WalletTransactionEntity(
 interface UserDao {
     @Query("SELECT * FROM users WHERE id = :id")
     suspend fun getUserById(id: String): UserEntity?
+
+    @Query("SELECT * FROM users WHERE phone = :phone LIMIT 1")
+    suspend fun getUserByPhone(phone: String): UserEntity?
 
     @Query("SELECT * FROM users WHERE id = :id")
     fun getUserByIdFlow(id: String): Flow<UserEntity?>
@@ -188,7 +192,7 @@ interface WalletDao {
         ChatMessageEntity::class,
         WalletTransactionEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class HazirDatabase : RoomDatabase() {
@@ -209,6 +213,7 @@ abstract class HazirDatabase : RoomDatabase() {
                     HazirDatabase::class.java,
                     "hazir_database"
                 )
+                .fallbackToDestructiveMigration()
                 .addCallback(DatabasePrepopulationCallback(context))
                 .build()
                 INSTANCE = instance

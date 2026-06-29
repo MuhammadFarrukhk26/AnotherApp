@@ -23,6 +23,10 @@ class HazirRepositoryImpl(private val db: HazirDatabase) : HazirRepository {
         userDao.getUserById(id)?.toDomain()
     }
 
+    override suspend fun getUserByPhone(phone: String): User? = withContext(Dispatchers.IO) {
+        userDao.getUserByPhone(phone)?.toDomain()
+    }
+
     override fun getUserByIdFlow(id: String): Flow<User?> =
         userDao.getUserByIdFlow(id).map { it?.toDomain() }
 

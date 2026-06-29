@@ -11,6 +11,11 @@ import {
   Image,
   Share,
   Clipboard,
+  Modal,
+  TextInput,
+  TouchableWithoutFeedback,
+  Keyboard,
+  Alert,
 } from 'react-native';
 import { useBookingStore } from '../state/bookingStore';
 import { Card } from '../components/Card';
@@ -23,6 +28,12 @@ import { BookingDetailSkeleton } from '../components/BookingDetailSkeleton';
 import { OrderSummaryList } from '../components/OrderSummaryList';
 import { StatusBadge } from '../components/StatusBadge';
 import { BookingDetailErrorBoundary } from '../components/BookingDetailErrorBoundary';
+import { BookingCountdownTimer } from '../components/BookingCountdownTimer';
+import { BookingReviewFeedback } from '../components/BookingReviewFeedback';
+import { BookingChatDrawer } from '../components/BookingChatDrawer';
+import { BookingActivityTimeline } from '../components/BookingActivityTimeline';
+import { BookingCalendarSync } from '../components/BookingCalendarSync';
+import { BookingFAQSection } from '../components/BookingFAQSection';
 
 // Try to dynamically load react-native-reanimated for layout transitions
 let Reanimated: any = null;
@@ -133,6 +144,73 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
   const [shareLinkGenerated, setShareLinkGenerated] = useState(false);
   const [generatedLink, setGeneratedLink] = useState('');
   const [copied, setCopied] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+
+  // Network connection status
+  const [isOnline, setIsOnline] = useState(true);
+  const [wasOffline, setWasOffline] = useState(false);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setWasOffline(true);
+    };
+
+    if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
+      setIsOnline(navigator.onLine);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleOnline);
+      window.addEventListener('offline', handleOffline);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleOnline);
+        window.removeEventListener('offline', handleOffline);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isOnline && wasOffline) {
+      Alert.alert('Back Online', 'Your internet connection has been restored. Live tracking resumed.');
+      setWasOffline(false);
+    }
+  }, [isOnline, wasOffline]);
+
+  // Cancellation Flow State
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReasonStep, setCancelReasonStep] = useState(1); // 1 = Reason selection, 2 = Confirmation
+  const [selectedReason, setSelectedReason] = useState<string>('');
+  const [otherReasonText, setOtherReasonText] = useState<string>('');
+
+  const cancellationReasons = [
+    "Technician is delayed / not responding",
+    "Schedule conflict / changed plans",
+    "Found alternative solution elsewhere",
+    "Incorrect service type or details selected",
+    "Emergency / no longer required",
+    "Other reason"
+  ];
+
+  const handleConfirmCancel = () => {
+    setLocalStatus('CANCELLED');
+    setShowCancelModal(false);
+    // Reset state
+    setCancelReasonStep(1);
+    setSelectedReason('');
+    setOtherReasonText('');
+    Alert.alert(
+      'Booking Cancelled',
+      'Your booking has been successfully cancelled. The provider has been notified.',
+      [{ text: 'OK' }]
+    );
+  };
 
   const handleGenerateLink = () => {
     setIsGenerating(true);
@@ -157,9 +235,28 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
 
   const handleNativeShare = async () => {
     try {
-      const serviceName = currentBooking ? currentBooking.serviceType : 'service';
-      const statusText = activeStatus.replace('_', ' ').toLowerCase();
-      const message = `Assalaamu alaikum! I am sharing my live tracking link for my Hazir ${serviceName} booking. The technician is currently on status: "${statusText}". You can track their live location and status update here: ${generatedLink}`;
+      if (!currentBooking) return;
+      const serviceName = currentBooking.serviceType;
+      const statusText = activeStatus.replace('_', ' ').toUpperCase();
+      const worker = "Ayaan Sheikh"; // Default worker in mock
+      const scheduledTimeStr = new Date(currentBooking.scheduledTime).toLocaleString();
+      const address = currentBooking.address;
+      const priceStr = formattedPrice;
+      const message = `🛠️ HAZIR SERVICE BOOKING DETAILS 🛠️
+
+Assalaamu Alaikum! Here are the tracking & booking details for my Hazir service:
+
+• Booking ID: #${currentBooking.id}
+• Service: ${serviceName}
+• Technician: ${worker}
+• Status: ${statusText}
+• Scheduled/Arrival Time: ${scheduledTimeStr}
+• Address: ${address}
+• Estimated Price: ${priceStr}
+
+📍 Live Tracking Link: ${generatedLink}
+
+Thank you for using Hazir – your instant on-demand handyman partner!`;
       
       await Share.share({
         message,
@@ -202,6 +299,12 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
         <Text style={styles.headerTitle}>Booking Tracker</Text>
         <View style={styles.headerPlaceholder} />
       </View>
+
+      {!isOnline && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineText}>⚠️ No internet connection. Tracking paused.</Text>
+        </View>
+      )}
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {loading && <BookingDetailSkeleton />}
@@ -246,6 +349,14 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
                 <Text style={styles.priceValue}>{formattedPrice}</Text>
               </View>
             </Card>
+            
+            <BookingCalendarSync
+              bookingId={currentBooking.id}
+              serviceType={currentBooking.serviceType}
+              scheduledTime={currentBooking.scheduledTime}
+              address={currentBooking.address}
+              workerName="Ayaan Sheikh"
+            />
 
             {/* Share Live Status Component */}
             <Card style={styles.shareCard}>
@@ -325,6 +436,13 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
                       workerRating={4.9}
                       workerJobsCount={186}
                       avatarUrl="https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200"
+                      onMessagePressed={() => setIsChatOpen(true)}
+                    />
+
+                    <BookingCountdownTimer
+                      customerLat={currentBooking.latitude}
+                      customerLng={currentBooking.longitude}
+                      workerName="Ayaan Sheikh"
                     />
 
                     <LiveWorkerTracking
@@ -360,6 +478,8 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
                 price={currentBooking.price}
               />
             </TransitionWrapper>
+
+            <BookingActivityTimeline currentStatus={activeStatus} />
 
             {/* Job Duration Extension Component */}
             {activeStatus !== 'COMPLETED' && (
@@ -526,21 +646,22 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
               </View>
             )}
 
+            {activeStatus === 'COMPLETED' && (
+              <BookingReviewFeedback
+                workerName="Ayaan Sheikh"
+                workerAvatar="https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200"
+                onReviewSubmitted={(rating, review, tags) => {
+                  console.log(`[Inline Review] Worker: Ayaan Sheikh. Rating: ${rating}. Review: ${review}. Tags: ${tags.join(', ')}`);
+                }}
+              />
+            )}
+
             <BillingCard totalPrice={finalPrice} extraPrice={extraPrice} />
 
+            <BookingFAQSection />
+
             {/* Quick Action to Complete Job and Rate */}
-            {activeStatus !== 'COMPLETED' ? (
-              <TouchableOpacity
-                style={styles.completeJobButton}
-                onPress={() => {
-                  setLocalStatus('COMPLETED');
-                  setShowRatingModal(true);
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.completeJobButtonText}>✓ Complete Service & Review</Text>
-              </TouchableOpacity>
-            ) : (
+            {activeStatus === 'COMPLETED' ? (
               <TouchableOpacity
                 style={styles.reviewButton}
                 onPress={() => setShowRatingModal(true)}
@@ -548,6 +669,36 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
               >
                 <Text style={styles.reviewButtonText}>★ Leave Another Star Review</Text>
               </TouchableOpacity>
+            ) : activeStatus === 'CANCELLED' ? (
+              <View style={styles.cancelledStatusCard}>
+                <Text style={styles.cancelledStatusText}>❌ This booking has been cancelled.</Text>
+              </View>
+            ) : (
+              <View>
+                <TouchableOpacity
+                  style={styles.completeJobButton}
+                  onPress={() => {
+                    setLocalStatus('COMPLETED');
+                    setShowRatingModal(true);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.completeJobButtonText}>✓ Complete Service & Review</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.cancelBookingButton}
+                  onPress={() => {
+                    setCancelReasonStep(1);
+                    setSelectedReason('');
+                    setOtherReasonText('');
+                    setShowCancelModal(true);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.cancelBookingButtonText}>⚠️ Cancel Booking Request</Text>
+                </TouchableOpacity>
+              </View>
             )}
 
             <RatingModal
@@ -556,6 +707,141 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
               onSubmit={(rating, review) => {
                 console.log(`Submitted review for Ayaan Sheikh: Rating ${rating}, ${review}`);
               }}
+              workerName="Ayaan Sheikh"
+            />
+
+            <Modal
+              visible={showCancelModal}
+              transparent
+              animationType="slide"
+              statusBarTranslucent
+              onRequestClose={() => setShowCancelModal(false)}
+            >
+              <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                <View style={styles.modalOverlay}>
+                  <View style={styles.cancelModalContainer}>
+                    {cancelReasonStep === 1 ? (
+                      <View>
+                        <View style={styles.modalHeader}>
+                          <Text style={styles.modalTitle}>Cancel Booking</Text>
+                          <Text style={styles.modalSubtitle}>Please let us know why you need to cancel this booking request.</Text>
+                        </View>
+
+                        <ScrollView style={styles.reasonsList} showsVerticalScrollIndicator={false}>
+                          {cancellationReasons.map((reason) => {
+                            const isSelected = selectedReason === reason;
+                            return (
+                              <TouchableOpacity
+                                key={reason}
+                                style={[
+                                  styles.reasonItem,
+                                  isSelected && styles.reasonItemSelected,
+                                ]}
+                                onPress={() => setSelectedReason(reason)}
+                                activeOpacity={0.7}
+                              >
+                                <View style={styles.radioButton}>
+                                  {isSelected && <View style={styles.radioButtonInner} />}
+                                </View>
+                                <Text style={[styles.reasonText, isSelected && styles.reasonTextSelected]}>
+                                  {reason}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+
+                          {selectedReason === 'Other reason' && (
+                            <TextInput
+                              style={styles.customReasonInput}
+                              placeholder="Please elaborate your reason..."
+                              placeholderTextColor="#94A3B8"
+                              value={otherReasonText}
+                              onChangeText={setOtherReasonText}
+                              multiline
+                              numberOfLines={3}
+                              maxLength={150}
+                            />
+                          )}
+                        </ScrollView>
+
+                        <View style={styles.modalFooter}>
+                          <TouchableOpacity
+                            style={[styles.modalBtn, styles.modalSecondaryBtn]}
+                            onPress={() => setShowCancelModal(false)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.modalSecondaryBtnText}>Close</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.modalBtn,
+                              styles.modalPrimaryBtn,
+                              !selectedReason && styles.modalBtnDisabled
+                            ]}
+                            onPress={() => {
+                              if (selectedReason) {
+                                setCancelReasonStep(2);
+                              }
+                            }}
+                            activeOpacity={0.7}
+                            disabled={!selectedReason}
+                          >
+                            <Text style={styles.modalPrimaryBtnText}>Next</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ) : (
+                      <View>
+                        <View style={styles.modalHeader}>
+                          <Text style={[styles.modalTitle, { color: '#EF4444' }]}>⚠️ Confirm Cancellation</Text>
+                          <Text style={styles.modalSubtitle}>Are you absolutely sure you want to cancel this booking?</Text>
+                        </View>
+
+                        <View style={styles.warningContainer}>
+                          <Text style={styles.warningTitle}>Cancellation Summary:</Text>
+                          <View style={styles.warningDetailBox}>
+                            <Text style={styles.warningLabel}>Service Type:</Text>
+                            <Text style={styles.warningValue}>{currentBooking.serviceType}</Text>
+                          </View>
+                          <View style={styles.warningDetailBox}>
+                            <Text style={styles.warningLabel}>Selected Reason:</Text>
+                            <Text style={styles.warningValue} numberOfLines={2}>
+                              {selectedReason === 'Other reason' ? otherReasonText || 'Other' : selectedReason}
+                            </Text>
+                          </View>
+                          <Text style={styles.warningNoteText}>
+                            * A cancellation fee may apply if the technician has already started traveling or arrived.
+                          </Text>
+                        </View>
+
+                        <View style={styles.modalFooter}>
+                          <TouchableOpacity
+                            style={[styles.modalBtn, styles.modalSecondaryBtn]}
+                            onPress={() => setCancelReasonStep(1)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.modalSecondaryBtnText}>← Back</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[styles.modalBtn, styles.modalDangerBtn]}
+                            onPress={handleConfirmCancel}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={styles.modalDangerBtnText}>Yes, Cancel Booking</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </Modal>
+
+            <BookingChatDrawer
+              isOpen={isChatOpen}
+              onClose={() => setIsChatOpen(false)}
               workerName="Ayaan Sheikh"
             />
           </View>
@@ -1174,5 +1460,228 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  cancelBookingButton: {
+    backgroundColor: '#FFF1F2',
+    borderRadius: 14,
+    height: 52,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+    borderWidth: 1.5,
+    borderColor: '#FECDD3',
+  },
+  cancelBookingButtonText: {
+    color: '#E11D48',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  cancelledStatusCard: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: 14,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
+  cancelledStatusText: {
+    color: '#EF4444',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  cancelModalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 380,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  modalHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#0F172A',
+    marginBottom: 6,
+  },
+  modalSubtitle: {
+    fontSize: 13.5,
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  reasonsList: {
+    maxHeight: 250,
+    marginBottom: 16,
+  },
+  reasonItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+  },
+  reasonItemSelected: {
+    borderColor: '#E11D48',
+    backgroundColor: '#FFF1F2',
+  },
+  radioButton: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: '#CBD5E1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  radioButtonInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#E11D48',
+  },
+  reasonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+    flex: 1,
+  },
+  reasonTextSelected: {
+    color: '#9F1239',
+    fontWeight: '700',
+  },
+  customReasonInput: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    height: 80,
+    textAlignVertical: 'top',
+    fontSize: 13,
+    color: '#0F172A',
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalSecondaryBtn: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  modalSecondaryBtnText: {
+    color: '#475569',
+    fontSize: 13.5,
+    fontWeight: '600',
+  },
+  modalPrimaryBtn: {
+    backgroundColor: '#E11D48',
+  },
+  modalPrimaryBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  modalDangerBtn: {
+    backgroundColor: '#E11D48',
+    shadowColor: '#E11D48',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  modalDangerBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  modalBtnDisabled: {
+    backgroundColor: '#E2E8F0',
+    opacity: 0.5,
+  },
+  warningContainer: {
+    backgroundColor: '#FFF1F2',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#FECDD3',
+    marginBottom: 16,
+  },
+  warningTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#9F1239',
+    marginBottom: 10,
+  },
+  warningDetailBox: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  warningLabel: {
+    fontSize: 12,
+    color: '#BE123C',
+    fontWeight: '600',
+    width: '35%',
+  },
+  warningValue: {
+    fontSize: 12,
+    color: '#4C0519',
+    fontWeight: '700',
+    width: '65%',
+    textAlign: 'right',
+  },
+  warningNoteText: {
+    fontSize: 11,
+    color: '#BE123C',
+    fontStyle: 'italic',
+    marginTop: 8,
+    lineHeight: 15,
+  },
+  offlineBanner: {
+    backgroundColor: '#D32F2F',
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  offlineText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
 });

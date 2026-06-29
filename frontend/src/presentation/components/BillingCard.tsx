@@ -32,6 +32,7 @@ export const BillingCard: React.FC<BillingCardProps> = ({
   const [appliedPromo, setAppliedPromo] = useState<string | null>('WELCOME300'); // pre-applied for interactive richness
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [successMsg, setSuccessMsg] = useState<string>('');
+  const [selectedTip, setSelectedTip] = useState<number>(0); // preset percentage tips: 0%, 10%, 15%, 20%
 
   // Math variables
   const baseServiceFeeRaw = totalPrice - extraPrice;
@@ -58,7 +59,9 @@ export const BillingCard: React.FC<BillingCardProps> = ({
   // Tax (5% of grand total, which is 5/85 of subtotal)
   const tax = subtotal * (5 / 85);
   
-  const computedGrandTotal = subtotal + platformFee + tax;
+  // Tip calculation based on subtotal
+  const tipAmount = subtotal * (selectedTip / 100);
+  const computedGrandTotal = subtotal + platformFee + tax + tipAmount;
 
   const formatCurrency = (amount: number) => {
     return `PKR ${amount.toLocaleString(undefined, {
@@ -128,6 +131,50 @@ export const BillingCard: React.FC<BillingCardProps> = ({
         <Text style={styles.label}>Govt. Services Tax (5%)</Text>
         <Text style={styles.value}>{formatCurrency(tax)}</Text>
       </View>
+
+      {/* Gratuity Selection Component */}
+      <View style={styles.gratuityContainer}>
+        <Text style={styles.gratuityTitle}>Add a Tip for the Technician:</Text>
+        <View style={styles.gratuityRow}>
+          {[0, 10, 15, 20].map((pct) => {
+            const isSelected = selectedTip === pct;
+            return (
+              <TouchableOpacity
+                key={pct}
+                style={[
+                  styles.gratuityButton,
+                  isSelected && styles.gratuityButtonActive
+                ]}
+                onPress={() => setSelectedTip(pct)}
+                accessibilityLabel={pct === 0 ? "No tip" : `${pct}% tip`}
+                accessibilityRole="button"
+              >
+                <Text style={[
+                  styles.gratuityButtonText,
+                  isSelected && styles.gratuityButtonTextActive
+                ]}>
+                  {pct === 0 ? "No Tip" : `${pct}%`}
+                </Text>
+                {pct > 0 && (
+                  <Text style={[
+                    styles.gratuityValText,
+                    isSelected && styles.gratuityValTextActive
+                  ]}>
+                    +{formatCurrency(subtotal * (pct / 100)).replace("PKR ", "")}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </View>
+
+      {selectedTip > 0 && (
+        <View style={styles.row} accessible={true} accessibilityLabel={`Technician Tip: ${formatCurrency(tipAmount)}`}>
+          <Text style={styles.tipLabel}>✨ Technician Tip ({selectedTip}%)</Text>
+          <Text style={styles.tipValue}>{formatCurrency(tipAmount)}</Text>
+        </View>
+      )}
 
       <View style={styles.divider} />
 
@@ -238,6 +285,14 @@ export const BillingCard: React.FC<BillingCardProps> = ({
                   <Text style={styles.receiptLabel}>Govt. Services Tax (5%)</Text>
                   <Text style={styles.receiptValue}>{formatCurrency(tax)}</Text>
                 </View>
+
+                {/* Line Item: Tip */}
+                {selectedTip > 0 && (
+                  <View style={styles.receiptRow}>
+                    <Text style={styles.receiptTipLabel}>✨ Technician Tip ({selectedTip}%)</Text>
+                    <Text style={styles.receiptTipValue}>{formatCurrency(tipAmount)}</Text>
+                  </View>
+                )}
 
                 <View style={styles.receiptDashedDivider} />
 
@@ -746,5 +801,78 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
+  },
+  gratuityContainer: {
+    marginTop: 12,
+    marginBottom: 8,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  gratuityTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  gratuityRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  gratuityButton: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gratuityButtonActive: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#D97706',
+  },
+  gratuityButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  gratuityButtonTextActive: {
+    color: '#B45309',
+  },
+  gratuityValText: {
+    fontSize: 9,
+    fontWeight: '600',
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  gratuityValTextActive: {
+    color: '#D97706',
+  },
+  tipLabel: {
+    fontSize: 13,
+    color: '#D97706',
+    fontWeight: '600',
+  },
+  tipValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#D97706',
+  },
+  receiptTipLabel: {
+    fontSize: 13,
+    color: '#D97706',
+    fontWeight: '700',
+  },
+  receiptTipValue: {
+    fontSize: 13,
+    color: '#D97706',
+    fontWeight: '800',
   },
 });

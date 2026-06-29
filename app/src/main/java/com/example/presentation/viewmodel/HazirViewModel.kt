@@ -43,11 +43,13 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
     private val depositWalletFundsUseCase: DepositWalletFundsUseCase
     private val transferFundsUseCase: TransferFundsUseCase
 
+    private lateinit var repository: com.example.domain.repository.HazirRepository
+
     // 1. App Navigation / UI Persona State
     private val _currentRole = MutableStateFlow("CUSTOMER") // "CUSTOMER", "WORKER", "ADMIN"
     val currentRole: StateFlow<String> = _currentRole.asStateFlow()
 
-    private val _currentUserId = MutableStateFlow("customer_1") // Or "worker_electrician", "admin_1"
+    private val _currentUserId = MutableStateFlow("") // Empty initially representing logged out
     val currentUserId: StateFlow<String> = _currentUserId.asStateFlow()
 
     // 2. Reactive Flows
@@ -94,6 +96,7 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
         // Concrete database & repository instantiation in infrastructure layer
         val db = HazirDatabase.getDatabase(application)
         val repository = HazirRepositoryImpl(db)
+        this.repository = repository
 
         // Instantiate Use Cases
         getCategoriesUseCase = GetCategoriesUseCase(repository)
@@ -130,14 +133,15 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
 
         // Profile switcher bind
         currentUserProfile = _currentUserId.flatMapLatest { id ->
-            getUserProfileUseCase(id)
+            if (id.isNotEmpty()) getUserProfileUseCase(id) else flowOf(null)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-        customerBookings = getCustomerBookingsUseCase("customer_1")
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        customerBookings = _currentUserId.flatMapLatest { id ->
+            if (id.isNotEmpty()) getCustomerBookingsUseCase(id) else flowOf(emptyList())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         workerBookings = _currentUserId.flatMapLatest { id ->
-            getWorkerBookingsUseCase(id)
+            if (id.isNotEmpty()) getWorkerBookingsUseCase(id) else flowOf(emptyList())
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         allBookingsAdmin = getAllBookingsAdminUseCase()
@@ -152,7 +156,7 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         walletTransactions = _currentUserId.flatMapLatest { id ->
-            getWalletTransactionsUseCase(id)
+            if (id.isNotEmpty()) getWalletTransactionsUseCase(id) else flowOf(emptyList())
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     }
 
@@ -169,6 +173,80 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
             }
             Log.d(TAG, "Switched role to: $role with UserID: ${_currentUserId.value}")
         }
+    }
+
+    // ==========================================
+    // AUTHENTICATION & REGISTRATION
+    // ==========================================
+    fun loginWithPhone(phone: String, role: String, onResult: (Boolean, String?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val user = repository.getUserByPhone(phone)
+                if (user != null) {
+                    if (user.role == role) {
+                        _currentUserId.value = user.id
+                        _currentRole.value = user.role
+                        onResult(true, null)
+                    } else {
+                        onResult(false, "This phone is registered as ${user.role}, not $role.")
+                    }
+                } else {
+                    onResult(false, "Phone number not registered. Please sign up!")
+                }
+            } catch (e: Exception) {
+                onResult(false, "Error: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    fun signUpUser(
+        name: String,
+        phone: String,
+        role: String,
+        skills: String = "",
+        experienceYears: Int = 0,
+        cnicNumber: String = "",
+        walletBalance: Double = 5000.0,
+        onResult: (Boolean, String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val existing = repository.getUserByPhone(phone)
+                if (existing != null) {
+                    onResult(false, "Phone number already registered as ${existing.role}!")
+                    return@launch
+                }
+
+                val newId = if (role == "WORKER") "worker_${System.currentTimeMillis()}" else "customer_${System.currentTimeMillis()}"
+                val newUser = User(
+                    id = newId,
+                    name = name,
+                    phone = phone,
+                    role = role,
+                    avatarUrl = if (role == "WORKER") "avatar_sajid" else "avatar_haris",
+                    walletBalance = walletBalance,
+                    rating = if (role == "WORKER") 5.0 else 0.0,
+                    isOnline = role == "WORKER",
+                    skills = skills,
+                    experienceYears = experienceYears,
+                    cnicVerified = role != "WORKER", // Only Workers require verification
+                    cnicNumber = cnicNumber,
+                    selfieVerified = role != "WORKER",
+                    completedJobs = 0
+                )
+
+                repository.insertUser(newUser)
+                _currentUserId.value = newId
+                _currentRole.value = role
+                onResult(true, null)
+            } catch (e: Exception) {
+                onResult(false, "Error: ${e.localizedMessage}")
+            }
+        }
+    }
+
+    fun logout() {
+        _currentUserId.value = ""
     }
 
     // Toggle Worker's online status
@@ -190,7 +268,8 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
         description: String,
         estimatedPrice: Double,
         date: String,
-        time: String
+        time: String,
+        paymentMethod: String = "CASH"
     ) {
         viewModelScope.launch {
             val user = currentUserProfile.value ?: return@launch
@@ -211,7 +290,8 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
                 longitude = 73.0479,
                 description = description,
                 estimatedPrice = estimatedPrice,
-                status = "PENDING"
+                status = "PENDING",
+                paymentMethod = paymentMethod
             )
 
             val bookingId = requestBookingUseCase(newBooking)
@@ -232,7 +312,7 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun cancelActiveBooking(bookingId: Int) {
+    fun cancelActiveBooking(bookingId: Int, reason: String? = null) {
         viewModelScope.launch {
             val booking = getBookingByIdUseCase(bookingId) ?: return@launch
             val updated = booking.copy(status = "CANCELLED")
@@ -243,7 +323,7 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
                     bookingId = bookingId,
                     senderId = "system",
                     senderRole = "SYSTEM",
-                    message = "Booking cancelled by customer."
+                    message = if (reason.isNullOrBlank()) "Booking cancelled by customer." else "Booking cancelled by customer. Reason: $reason"
                 )
             )
         }

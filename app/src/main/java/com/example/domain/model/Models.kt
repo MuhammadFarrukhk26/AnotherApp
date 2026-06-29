@@ -49,6 +49,7 @@ data class Booking(
     val review: String? = null,
     val beforePhoto: String? = null,
     val afterPhoto: String? = null,
+    val paymentMethod: String = "CASH", // "CASH", "CARD", "WALLET"
     val createdAt: Long = System.currentTimeMillis()
 )
 

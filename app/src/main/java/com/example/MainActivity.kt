@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             MyApplicationTheme {
                 val viewModel: HazirViewModel = viewModel()
+                val currentUserId by viewModel.currentUserId.collectAsStateWithLifecycle()
                 val currentRole by viewModel.currentRole.collectAsStateWithLifecycle()
 
                 var showOnboarding by remember { mutableStateOf(true) }
@@ -33,35 +34,37 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize()
                 ) {
                     AnimatedContent(
-                        targetState = showOnboarding,
+                        targetState = Triple(showOnboarding, currentUserId.isEmpty(), trackedBookingId),
                         label = "app_navigation"
-                    ) { onboardingActive ->
+                    ) { (onboardingActive, isLoggedOut, activeTrackId) ->
                         if (onboardingActive) {
                             OnboardingScreen(
                                 onGetStarted = { showOnboarding = false }
                             )
+                        } else if (isLoggedOut) {
+                            LoginRegisterScreen(
+                                viewModel = viewModel,
+                                onLoginSuccess = { /* State transitions automatically */ }
+                            )
+                        } else if (activeTrackId != null) {
+                            BookingTrackerScreen(
+                                bookingId = activeTrackId,
+                                viewModel = viewModel,
+                                onBack = { trackedBookingId = null }
+                            )
                         } else {
-                            val activeTrackId = trackedBookingId
-                            if (activeTrackId != null) {
-                                BookingTrackerScreen(
-                                    bookingId = activeTrackId,
+                            when (currentRole) {
+                                "CUSTOMER" -> CustomerHomeScreen(
                                     viewModel = viewModel,
-                                    onBack = { trackedBookingId = null }
+                                    onTrackBooking = { trackedBookingId = it }
                                 )
-                            } else {
-                                when (currentRole) {
-                                    "CUSTOMER" -> CustomerHomeScreen(
-                                        viewModel = viewModel,
-                                        onTrackBooking = { trackedBookingId = it }
-                                    )
-                                    "WORKER" -> WorkerConsoleScreen(
-                                        viewModel = viewModel,
-                                        onTrackBooking = { trackedBookingId = it }
-                                    )
-                                    "ADMIN" -> AdminPanelScreen(
-                                        viewModel = viewModel
-                                    )
-                                }
+                                "WORKER" -> WorkerConsoleScreen(
+                                    viewModel = viewModel,
+                                    onTrackBooking = { trackedBookingId = it }
+                                )
+                                "ADMIN" -> AdminPanelScreen(
+                                    viewModel = viewModel
+                                )
                             }
                         }
                     }

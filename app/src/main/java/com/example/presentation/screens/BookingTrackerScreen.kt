@@ -5,10 +5,19 @@ import android.content.Context
 import android.content.ClipboardManager
 import android.content.ClipData
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -59,6 +68,68 @@ fun BookingTrackerScreen(
     var chatInput by remember { mutableStateOf("") }
     var showShareDialog by remember { mutableStateOf(false) }
     var generatedShareLink by remember { mutableStateOf("") }
+
+    // Network Status State
+    var isNetworkAvailable by remember { mutableStateOf(true) }
+    var wasNetworkLost by remember { mutableStateOf(false) }
+
+    DisposableEffect(context) {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        
+        // Retrieve initial network state
+        val activeNetwork = connectivityManager.activeNetwork
+        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+        isNetworkAvailable = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+        
+        val networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                Handler(Looper.getMainLooper()).post {
+                    isNetworkAvailable = true
+                }
+            }
+
+            override fun onLost(network: Network) {
+                Handler(Looper.getMainLooper()).post {
+                    isNetworkAvailable = false
+                    wasNetworkLost = true
+                }
+            }
+        }
+
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+
+        try {
+            connectivityManager.registerNetworkCallback(request, networkCallback)
+        } catch (e: Exception) {
+            // Fallback if permission or API is restricted in sandbox
+            isNetworkAvailable = true
+        }
+
+        onDispose {
+            try {
+                connectivityManager.unregisterNetworkCallback(networkCallback)
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
+    LaunchedEffect(isNetworkAvailable) {
+        if (isNetworkAvailable && wasNetworkLost) {
+            Toast.makeText(context, "Back online! Live booking updates resumed.", Toast.LENGTH_SHORT).show()
+            wasNetworkLost = false
+        } else if (!isNetworkAvailable) {
+            Toast.makeText(context, "Internet connection lost.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Cancellation Flow State
+    var showCancellationModal by remember { mutableStateOf(false) }
+    var selectedReason by remember { mutableStateOf("") }
+    var otherReasonText by remember { mutableStateOf("") }
+    var showFinalConfirmation by remember { mutableStateOf(false) }
 
     // Synchronize selected booking ID in ViewModel on creation
     LaunchedEffect(bookingId) {
@@ -114,6 +185,34 @@ fun BookingTrackerScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
+            AnimatedVisibility(visible = !isNetworkAvailable) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFD32F2F))
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudOff,
+                            contentDescription = "Offline Indicator",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "No connection. Tracking paused.",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
             // 1. Vector Map Area
             Box(
                 modifier = Modifier
@@ -238,94 +337,109 @@ fun BookingTrackerScreen(
 
                     HorizontalDivider()
 
-                    // Job Address & Timings
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Default.Room, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(16.dp))
-                            Text(currentBooking.address, fontSize = 12.sp, color = NavySecondary, maxLines = 1)
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Job Address & Timings
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.Room, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                                Text(currentBooking.address, fontSize = 12.sp, color = NavySecondary, maxLines = 1)
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.AccessTime, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(16.dp))
+                                Text("Scheduled: ${currentBooking.date} • ${currentBooking.time}", fontSize = 12.sp, color = Color.Gray)
+                            }
                         }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Icon(Icons.Default.AccessTime, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(16.dp))
-                            Text("Scheduled: ${currentBooking.date} • ${currentBooking.time}", fontSize = 12.sp, color = Color.Gray)
-                        }
-                    }
 
-                    // Service Proof Photo Verification Card
-                    if (currentBooking.beforePhoto != null || currentBooking.afterPhoto != null) {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F8E9))
-                        ) {
-                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Verified,
-                                        contentDescription = null,
-                                        tint = Color(0xFF2E7D32),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "Service Proof Verification",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        color = Color(0xFF1B5E20)
-                                    )
-                                }
-                                Text(
-                                    text = "Photos captured by provider Sajid upon completing your repair job:",
-                                    fontSize = 11.sp,
-                                    color = Color.DarkGray
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    if (currentBooking.beforePhoto != null) {
-                                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Card(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(100.dp),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
-                                                AsyncImage(
-                                                    model = currentBooking.beforePhoto,
-                                                    contentDescription = "Before Photo",
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text("Before Work", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                                        }
+                        // Service Proof Photo Verification Card
+                        if (currentBooking.beforePhoto != null || currentBooking.afterPhoto != null) {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F8E9))
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Verified,
+                                            contentDescription = null,
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = "Service Proof Verification",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = Color(0xFF1B5E20)
+                                        )
                                     }
-                                    if (currentBooking.afterPhoto != null) {
-                                        Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Card(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(100.dp),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
-                                                AsyncImage(
-                                                    model = currentBooking.afterPhoto,
-                                                    contentDescription = "After Photo",
-                                                    contentScale = ContentScale.Crop,
-                                                    modifier = Modifier.fillMaxSize()
-                                                )
+                                    Text(
+                                        text = "Photos captured by provider Sajid upon completing your repair job:",
+                                        fontSize = 11.sp,
+                                        color = Color.DarkGray
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        if (currentBooking.beforePhoto != null) {
+                                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Card(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(100.dp),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    AsyncImage(
+                                                        model = currentBooking.beforePhoto,
+                                                        contentDescription = "Before Photo",
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text("Before Work", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                                             }
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text("After Work", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                        }
+                                        if (currentBooking.afterPhoto != null) {
+                                            Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Card(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(100.dp),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    AsyncImage(
+                                                        model = currentBooking.afterPhoto,
+                                                        contentDescription = "After Photo",
+                                                        contentScale = ContentScale.Crop,
+                                                        modifier = Modifier.fillMaxSize()
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text("After Work", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+
+                        // Collapsible FAQ Section Composable
+                        BookingFAQSection()
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     // Action trigger panel
                     Box(modifier = Modifier.fillMaxWidth()) {
@@ -338,8 +452,9 @@ fun BookingTrackerScreen(
                                     Spacer(modifier = Modifier.height(12.dp))
                                     Button(
                                         onClick = {
-                                            viewModel.cancelActiveBooking(currentBooking.id)
-                                            onBack()
+                                            selectedReason = ""
+                                            otherReasonText = ""
+                                            showCancellationModal = true
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
                                         modifier = Modifier.fillMaxWidth(),
@@ -373,8 +488,9 @@ fun BookingTrackerScreen(
                                     if (currentBooking.status != "STARTED") {
                                         Button(
                                             onClick = {
-                                                viewModel.cancelActiveBooking(currentBooking.id)
-                                                onBack()
+                                                selectedReason = ""
+                                                otherReasonText = ""
+                                                showCancellationModal = true
                                             },
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFEBEE)),
                                             modifier = Modifier.height(48.dp),
@@ -614,11 +730,31 @@ fun BookingTrackerScreen(
                             val sendIntent = Intent().apply {
                                 action = Intent.ACTION_SEND
                                 val serviceName = currentBooking.categoryName
-                                val statusText = currentBooking.status.replace("_", " ").lowercase()
-                                putExtra(
-                                    Intent.EXTRA_TEXT,
-                                    "Assalaamu alaikum! I am sharing my live tracking link for my Hazir $serviceName booking. The worker is currently on status: \"$statusText\". You can view their real-time location and status update here: $generatedShareLink"
-                                )
+                                val statusText = currentBooking.status.replace("_", " ").uppercase()
+                                val worker = currentBooking.workerName ?: "Assigning soon..."
+                                val arrivalTime = currentBooking.time
+                                val date = currentBooking.date
+                                val address = currentBooking.address
+                                val price = currentBooking.estimatedPrice
+                                val messageBody = """
+                                    🛠️ HAZIR SERVICE BOOKING DETAILS 🛠️
+                                    
+                                    Assalaamu Alaikum! Here are the tracking & booking details for my Hazir service:
+                                    
+                                    • Booking ID: #${currentBooking.id}
+                                    • Service: $serviceName
+                                    • Technician: $worker
+                                    • Status: $statusText
+                                    • Scheduled/Arrival Time: $date • $arrivalTime
+                                    • Address: $address
+                                    • Estimated Price: PKR $price
+                                    
+                                    📍 Live Tracking Link: $generatedShareLink
+                                    
+                                    Thank you for using Hazir – your instant on-demand handyman partner!
+                                """.trimIndent()
+
+                                putExtra(Intent.EXTRA_TEXT, messageBody)
                                 type = "text/plain"
                             }
                             val shareIntent = Intent.createChooser(sendIntent, "Share status link via")
@@ -648,8 +784,288 @@ fun BookingTrackerScreen(
                 }
             )
         }
+
+        // 1. Cancellation Reason Selection Dialog
+        if (showCancellationModal) {
+            AlertDialog(
+                onDismissRequest = { showCancellationModal = false },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Cancel,
+                            contentDescription = null,
+                            tint = Color.Red,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            text = "Cancel Booking",
+                            fontWeight = FontWeight.Bold,
+                            color = NavySecondary,
+                            fontSize = 18.sp
+                        )
+                    }
+                },
+                text = {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Please select a reason for cancelling your booking. This helps us improve our service and provider reliability.",
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            lineHeight = 16.sp
+                        )
+
+                        val reasons = listOf(
+                            "Changed my mind",
+                            "Found a cheaper alternative",
+                            "Provider is unresponsive",
+                            "Schedule/Time conflict",
+                            "Accidental booking",
+                            "Other reason"
+                        )
+
+                        reasons.forEach { reason ->
+                            val isSelected = selectedReason == reason
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) OrangePrimary.copy(alpha = 0.08f) else Color.Transparent)
+                                    .clickable { selectedReason = reason }
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(18.dp)
+                                        .clip(CircleShape)
+                                        .border(2.dp, if (isSelected) OrangePrimary else Color.Gray, CircleShape)
+                                        .padding(3.dp)
+                                ) {
+                                    if (isSelected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .clip(CircleShape)
+                                                .background(OrangePrimary)
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = reason,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) OrangePrimary else NavySecondary
+                                )
+                            }
+                        }
+
+                        if (selectedReason == "Other reason") {
+                            OutlinedTextField(
+                                value = otherReasonText,
+                                onValueChange = { otherReasonText = it },
+                                placeholder = { Text("Please describe briefly...", fontSize = 12.sp) },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary),
+                                maxLines = 2
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showCancellationModal = false
+                            showFinalConfirmation = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                        enabled = selectedReason.isNotEmpty() && (selectedReason != "Other reason" || otherReasonText.isNotBlank())
+                    ) {
+                        Text("Continue", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showCancellationModal = false }) {
+                        Text("Go Back", color = Color.Gray)
+                    }
+                }
+            )
+        }
+
+        // 2. Final Confirmation Dialog (Prevent accidental clicks)
+        if (showFinalConfirmation) {
+            AlertDialog(
+                onDismissRequest = { showFinalConfirmation = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = Color.Red,
+                        modifier = Modifier.size(40.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Confirm Cancellation?",
+                        fontWeight = FontWeight.Bold,
+                        color = NavySecondary,
+                        fontSize = 18.sp,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                text = {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Are you absolutely sure you want to cancel this booking? This action cannot be reversed and may impact your customer reliability score.",
+                            fontSize = 13.sp,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF5F5)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Selected Reason: " + if (selectedReason == "Other reason") otherReasonText else selectedReason,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.Red,
+                                modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val finalReason = if (selectedReason == "Other reason") otherReasonText else selectedReason
+                            viewModel.cancelActiveBooking(currentBooking.id, finalReason)
+                            showFinalConfirmation = false
+                            onBack()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                    ) {
+                        Text("Yes, Cancel Booking", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showFinalConfirmation = false }) {
+                        Text("No, Keep Booking", fontWeight = FontWeight.SemiBold, color = NavySecondary)
+                    }
+                }
+            )
+        }
     }
 }
 
 // Inline helper for standard paddings
 private fun Int.paddingsFixed() = PaddingValues(this.dp)
+
+data class FAQItemData(val id: String, val question: String, val answer: String)
+
+@Composable
+fun BookingFAQSection() {
+    var expandedItem by remember { mutableStateOf<String?>(null) }
+
+    val faqs = listOf(
+        FAQItemData(
+            id = "safety",
+            question = "What is Hazir’s customer safety policy?",
+            answer = "Your safety is our priority. Every Hazir technician undergoes background checks, biometric registration, and strict onboarding tests. Live sharing is available so family and friends can track your booking status and location in real-time."
+        ),
+        FAQItemData(
+            id = "cancel_refund",
+            question = "How do cancellation refunds work?",
+            answer = "Cancellations are completely free before a worker is assigned or accepts your job. If you cancel after a worker is en route, any online pre-payment is immediately refunded to your Hazir Wallet (within 10 minutes) or your bank card (within 3-5 business days)."
+        ),
+        FAQItemData(
+            id = "extension",
+            question = "Why would a service duration be extended?",
+            answer = "For complex repairs, the technician might need more time for accurate diagnostics or assembly. Any extension requested must be explicitly approved by you on this screen before extra charges are added to your invoice."
+        ),
+        FAQItemData(
+            id = "pricing",
+            question = "Are there any hidden platform fees?",
+            answer = "No! All charges, including the base fee, technician tip, and any approved time extensions are clearly transparent. You only pay what you see on your final digital receipt."
+        )
+    )
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "🙋 Common Service FAQs",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = NavySecondary
+            )
+            Text(
+                text = "Quick answers to safety policies and billing queries.",
+                fontSize = 11.sp,
+                color = Color.Gray,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            faqs.forEach { faq ->
+                val isExpanded = expandedItem == faq.id
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { expandedItem = if (isExpanded) null else faq.id }
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = faq.question,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isExpanded) OrangePrimary else Color(0xFF334155),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = if (isExpanded) "Collapse" else "Expand",
+                            tint = if (isExpanded) OrangePrimary else Color(0xFF94A3B8),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    if (isExpanded) {
+                        Text(
+                            text = faq.answer,
+                            fontSize = 11.sp,
+                            color = Color(0xFF475569),
+                            lineHeight = 16.sp,
+                            modifier = Modifier.padding(start = 2.dp, top = 2.dp, bottom = 8.dp)
+                        )
+                    }
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                }
+            }
+        }
+    }
+}

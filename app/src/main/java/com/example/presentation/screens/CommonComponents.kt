@@ -3,6 +3,8 @@ package com.example.presentation.screens
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -295,6 +297,10 @@ fun RatingAndReviewDialog(
 ) {
     var rating by remember { mutableStateOf(5) }
     var reviewText by remember { mutableStateOf("") }
+    var selectedTipPct by remember { mutableStateOf(0) } // preset percentages: 0, 10, 15, 20
+
+    val tipAmount = estimatedPrice * (selectedTipPct / 100.0)
+    val totalToPay = estimatedPrice + tipAmount
 
     AlertDialog(
         onDismissRequest = { onDismiss() },
@@ -328,7 +334,7 @@ fun RatingAndReviewDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Payment invoice summary
+                // Payment invoice summary with tip support
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -339,10 +345,69 @@ fun RatingAndReviewDialog(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Total Amount to Pay", fontSize = 12.sp, color = Color.Gray)
-                        Text("PKR ${String.format("%.2f", estimatedPrice)}", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                        Text("PKR ${String.format("%.2f", totalToPay)}", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFFE65100))
+                        if (selectedTipPct > 0) {
+                            Text(
+                                "Base Price: PKR ${String.format("%.2f", estimatedPrice)} + Tip: PKR ${String.format("%.2f", tipAmount)} (${selectedTipPct}%)",
+                                fontSize = 10.sp,
+                                color = Color(0xFFE65100),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                         Text("Deducted instantly from your Hazir Wallet", fontSize = 10.sp, color = Color.Gray)
                     }
                 }
+
+                // Gratuity/Tip Selection Component
+                Text(
+                    text = "Add a Tip for the Handyman:",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    listOf(0, 10, 15, 20).forEach { pct ->
+                        val isSelected = selectedTipPct == pct
+                        val borderCol = if (isSelected) OrangePrimary else Color.LightGray
+                        val bgCol = if (isSelected) Color(0xFFFFF3E0) else Color.Transparent
+                        val textCol = if (isSelected) OrangePrimary else Color.DarkGray
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(bgCol)
+                                .border(1.5.dp, borderCol, RoundedCornerShape(8.dp))
+                                .clickable { selectedTipPct = pct }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = if (pct == 0) "No Tip" else "$pct%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textCol
+                                )
+                                if (pct > 0) {
+                                    val currentTip = estimatedPrice * (pct / 100.0)
+                                    Text(
+                                        text = "+${currentTip.toInt()}",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = if (isSelected) OrangePrimary else Color.Gray
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
 
                 Text("How was your service experience?", fontWeight = FontWeight.Medium, fontSize = 14.sp)
 
