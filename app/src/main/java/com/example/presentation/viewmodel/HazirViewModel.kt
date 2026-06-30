@@ -46,10 +46,12 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
     private lateinit var repository: com.example.domain.repository.HazirRepository
 
     // 1. App Navigation / UI Persona State
-    private val _currentRole = MutableStateFlow("CUSTOMER") // "CUSTOMER", "WORKER", "ADMIN"
+    private val sharedPrefs = application.getSharedPreferences("hazir_session", android.content.Context.MODE_PRIVATE)
+
+    private val _currentRole = MutableStateFlow(sharedPrefs.getString("current_role", "CUSTOMER") ?: "CUSTOMER") // "CUSTOMER", "WORKER", "ADMIN"
     val currentRole: StateFlow<String> = _currentRole.asStateFlow()
 
-    private val _currentUserId = MutableStateFlow("") // Empty initially representing logged out
+    private val _currentUserId = MutableStateFlow(sharedPrefs.getString("current_user_id", "") ?: "") // Empty initially representing logged out
     val currentUserId: StateFlow<String> = _currentUserId.asStateFlow()
 
     // 2. Reactive Flows
@@ -166,12 +168,18 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
     fun setAppRole(role: String) {
         viewModelScope.launch {
             _currentRole.value = role
-            when (role) {
-                "CUSTOMER" -> _currentUserId.value = "customer_1"
-                "WORKER" -> _currentUserId.value = "worker_electrician" // Sajid by default
-                "ADMIN" -> _currentUserId.value = "admin_1"
+            val userId = when (role) {
+                "CUSTOMER" -> "customer_1"
+                "WORKER" -> "worker_electrician" // Sajid by default
+                "ADMIN" -> "admin_1"
+                else -> ""
             }
-            Log.d(TAG, "Switched role to: $role with UserID: ${_currentUserId.value}")
+            _currentUserId.value = userId
+            sharedPrefs.edit()
+                .putString("current_role", role)
+                .putString("current_user_id", userId)
+                .apply()
+            Log.d(TAG, "Switched role to: $role with UserID: $userId")
         }
     }
 
@@ -186,6 +194,10 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
                     if (user.role == role) {
                         _currentUserId.value = user.id
                         _currentRole.value = user.role
+                        sharedPrefs.edit()
+                            .putString("current_role", user.role)
+                            .putString("current_user_id", user.id)
+                            .apply()
                         onResult(true, null)
                     } else {
                         onResult(false, "This phone is registered as ${user.role}, not $role.")
@@ -238,6 +250,10 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
                 repository.insertUser(newUser)
                 _currentUserId.value = newId
                 _currentRole.value = role
+                sharedPrefs.edit()
+                    .putString("current_role", role)
+                    .putString("current_user_id", newId)
+                    .apply()
                 onResult(true, null)
             } catch (e: Exception) {
                 onResult(false, "Error: ${e.localizedMessage}")
@@ -247,6 +263,10 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
 
     fun logout() {
         _currentUserId.value = ""
+        sharedPrefs.edit()
+            .remove("current_user_id")
+            .remove("current_role")
+            .apply()
     }
 
     // Toggle Worker's online status

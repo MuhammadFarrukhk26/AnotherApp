@@ -1,6 +1,7 @@
 package com.example.infrastructure.database
 
 import android.content.Context
+import android.util.Log
 import androidx.room.*
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.CoroutineScope
@@ -208,16 +209,35 @@ abstract class HazirDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): HazirDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    HazirDatabase::class.java,
-                    "hazir_database"
-                )
-                .fallbackToDestructiveMigration()
-                .addCallback(DatabasePrepopulationCallback(context))
-                .build()
-                INSTANCE = instance
-                instance
+                try {
+                    val instance = Room.databaseBuilder(
+                        context.applicationContext,
+                        HazirDatabase::class.java,
+                        "hazir_database"
+                    )
+                    .fallbackToDestructiveMigration()
+                    .addCallback(DatabasePrepopulationCallback(context))
+                    .build()
+                    INSTANCE = instance
+                    instance
+                } catch (e: Exception) {
+                    Log.e("HazirDatabase", "Database initialization failed, attempting automatic recovery", e)
+                    try {
+                        context.deleteDatabase("hazir_database")
+                    } catch (ex: Exception) {
+                        Log.e("HazirDatabase", "Failed to delete corrupted database", ex)
+                    }
+                    val instance = Room.databaseBuilder(
+                        context.applicationContext,
+                        HazirDatabase::class.java,
+                        "hazir_database"
+                    )
+                    .fallbackToDestructiveMigration()
+                    .addCallback(DatabasePrepopulationCallback(context))
+                    .build()
+                    INSTANCE = instance
+                    instance
+                }
             }
         }
     }
