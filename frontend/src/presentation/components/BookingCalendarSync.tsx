@@ -115,10 +115,72 @@ export const BookingCalendarSync: React.FC<BookingCalendarSyncProps> = ({
         if (supported) {
           Linking.openURL(googleCalendarUrl);
         } else {
-          Alert.alert('Error', 'Unable to open calendar application.');
+          Alert.alert('Error', 'Unable to open Google Calendar.');
         }
       })
       .catch((err) => console.error('Error opening URL:', err));
+  };
+
+  const generateICSString = () => {
+    const startTime = new Date(scheduledTime);
+    const endTime = new Date(startTime.getTime() + 2 * 60 * 60 * 1000); // 2 hours
+    
+    const formatICSDate = (date: Date) => {
+      return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+    };
+
+    const cleanString = (str: string) => {
+      return str.replace(/[,;]/g, '\\$&').replace(/\n/g, '\\n');
+    };
+
+    return [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Hazir//Home Services Event//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      'BEGIN:VEVENT',
+      `UID:${bookingId}@hazir-app.com`,
+      `DTSTART:${formatICSDate(startTime)}`,
+      `DTEND:${formatICSDate(endTime)}`,
+      `SUMMARY:${cleanString(`Hazir: ${serviceType} Service`)}`,
+      `DESCRIPTION:${cleanString(`Your home service is scheduled.\n\nTechnician: ${workerName}\nBooking ID: ${bookingId}\nSecure dual-proof verification enabled.\n\nThank you for choosing Hazir.`)}`,
+      `LOCATION:${cleanString(address)}`,
+      'STATUS:CONFIRMED',
+      'SEQUENCE:0',
+      'BEGIN:VALARM',
+      'TRIGGER:-PT15M',
+      'DESCRIPTION:Reminder for your Hazir service appointment',
+      'ACTION:DISPLAY',
+      'END:VALARM',
+      'END:VEVENT',
+      'END:VCALENDAR',
+    ].join('\r\n');
+  };
+
+  const handleExportICS = () => {
+    const icsContent = generateICSString();
+    const icsUrl = `data:text/calendar;charset=utf-8,${encodeURIComponent(icsContent)}`;
+    
+    Linking.canOpenURL(icsUrl)
+      .then((supported) => {
+        if (supported) {
+          Linking.openURL(icsUrl);
+        } else {
+          Alert.alert(
+            'iCal Export',
+            'Your device could not open the universal iCal event directly. Please use Google Calendar instead.',
+            [
+              { text: 'Use Google Calendar', onPress: triggerCalendarIntent },
+              { text: 'Cancel', style: 'cancel' }
+            ]
+          );
+        }
+      })
+      .catch((err) => {
+        console.error('Error opening ICS URL:', err);
+        triggerCalendarIntent();
+      });
   };
 
   const handleSyncBooking = () => {
@@ -133,8 +195,15 @@ export const BookingCalendarSync: React.FC<BookingCalendarSyncProps> = ({
       setIsSyncing(false);
       setIsSynced(true);
       
-      // Auto-trigger native calendar intent to let user view/save the final draft
-      triggerCalendarIntent();
+      Alert.alert(
+        '📅 Calendar Synced',
+        'Your booking details have been integrated. Choose your preferred calendar application to view or finalize:',
+        [
+          { text: 'Google Calendar', onPress: triggerCalendarIntent },
+          { text: 'iCal / Native Calendar', onPress: handleExportICS },
+          { text: 'Done', style: 'cancel' }
+        ]
+      );
     }, 1500);
   };
 
@@ -143,8 +212,8 @@ export const BookingCalendarSync: React.FC<BookingCalendarSyncProps> = ({
       <View style={styles.headerRow}>
         <Text style={styles.emojiIcon}>📆</Text>
         <View style={styles.headerTextWrapper}>
-          <Text style={styles.title} accessibilityRole="header">Sync with Device Calendar</Text>
-          <Text style={styles.subtitle}>Keep track of your service slot & handyman visit timing</Text>
+          <Text style={styles.title} accessibilityRole="header">Export to Native Calendar</Text>
+          <Text style={styles.subtitle}>Add service slot & handyman visit timing to your agenda</Text>
         </View>
       </View>
 
@@ -167,13 +236,25 @@ export const BookingCalendarSync: React.FC<BookingCalendarSyncProps> = ({
             <Text style={styles.previewDetail}>👷 Assigned: {workerName}</Text>
           </View>
 
-          <TouchableOpacity
-            style={styles.reopenButton}
-            onPress={triggerCalendarIntent}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.reopenButtonText}>🔄 Re-open System Calendar</Text>
-          </TouchableOpacity>
+          <View style={styles.actionButtonsContainer}>
+            <TouchableOpacity
+              style={[styles.reopenButton, { flex: 1, marginRight: 8 }]}
+              onPress={triggerCalendarIntent}
+              activeOpacity={0.7}
+              testID="reopen_google_calendar_button"
+            >
+              <Text style={styles.reopenButtonText}>💙 Google Cal</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.reopenButton, { flex: 1, borderColor: '#0F172A' }]}
+              onPress={handleExportICS}
+              activeOpacity={0.7}
+              testID="reopen_native_calendar_button"
+            >
+              <Text style={[styles.reopenButtonText, { color: '#0F172A' }]}>🍏 Apple / iCal</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ) : (
         <View style={styles.syncBody}>
@@ -206,13 +287,14 @@ export const BookingCalendarSync: React.FC<BookingCalendarSyncProps> = ({
           </View>
 
           <TouchableOpacity
-            style={[styles.syncButton, isSyncing && styles.syncButtonDisabled]}
+            style={[styles.syncButton, isSyncing && styles.syncButtonDisabled, { marginBottom: 12 }]}
             onPress={handleSyncBooking}
             disabled={isSyncing}
             activeOpacity={0.8}
             accessible={true}
             accessibilityLabel="Synchronize booking to device calendar"
             accessibilityRole="button"
+            testID="sync_calendar_button"
           >
             {isSyncing ? (
               <View style={styles.loaderRow}>
@@ -221,10 +303,38 @@ export const BookingCalendarSync: React.FC<BookingCalendarSyncProps> = ({
               </View>
             ) : (
               <Text style={styles.syncButtonText}>
-                {permissionStatus === 'granted' ? 'Sync to Device Calendar' : 'Authorize & Sync Calendar'}
+                {permissionStatus === 'granted' ? 'Auto-Sync to Calendar' : 'Authorize & Sync'}
               </Text>
             )}
           </TouchableOpacity>
+
+          <Text style={styles.quickExportLabel}>QUICK EXPORT WITHOUT PERMISSIONS:</Text>
+          
+          <View style={styles.actionButtonsContainer}>
+            <TouchableOpacity
+              style={[styles.exportButton, styles.googleButton, { marginRight: 8 }]}
+              onPress={triggerCalendarIntent}
+              activeOpacity={0.8}
+              accessible={true}
+              accessibilityLabel="Add to Google Calendar"
+              accessibilityRole="button"
+              testID="quick_export_google_calendar"
+            >
+              <Text style={styles.exportButtonText}>💙 Google Calendar</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.exportButton, styles.nativeButton]}
+              onPress={handleExportICS}
+              activeOpacity={0.8}
+              accessible={true}
+              accessibilityLabel="Add to Apple or Native Calendar via iCal"
+              accessibilityRole="button"
+              testID="quick_export_native_calendar"
+            >
+              <Text style={styles.exportButtonText}>🍏 Apple / Native</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
     </View>
@@ -337,7 +447,7 @@ const styles = StyleSheet.create({
   syncButton: {
     backgroundColor: '#4F46E5',
     borderRadius: 12,
-    height: 46,
+    height: 48,
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#4F46E5',
@@ -417,7 +527,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#4F46E5',
     borderRadius: 12,
-    height: 42,
+    height: 48,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -425,5 +535,46 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#4F46E5',
+  },
+  quickExportLabel: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 0.5,
+    marginTop: 14,
+    marginBottom: 8,
+  },
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  exportButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  googleButton: {
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  nativeButton: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  exportButtonText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#1E293B',
   },
 });

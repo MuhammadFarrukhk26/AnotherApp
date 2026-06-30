@@ -2,14 +2,17 @@ import { create } from 'zustand';
 import { Booking } from '../../domain/models/Booking';
 import { CreateBookingDTO } from '@hazir/shared';
 import { GetBookingUseCase } from '../../domain/usecases/GetBookingUseCase';
+import { GetCustomerBookingsUseCase } from '../../domain/usecases/GetCustomerBookingsUseCase';
 import { BookingRepositoryImpl } from '../../data/repositories/BookingRepositoryImpl';
 import { BookingRemoteDataSource } from '../../data/datasources/BookingRemoteDataSource';
 
 interface BookingState {
+  bookings: Booking[];
   currentBooking: Booking | null;
   loading: boolean;
   error: string | null;
   fetchBookingDetails: (id: string) => Promise<void>;
+  fetchCustomerBookings: (customerId: string) => Promise<void>;
   clearState: () => void;
 }
 
@@ -17,8 +20,10 @@ interface BookingState {
 const remoteDataSource = new BookingRemoteDataSource();
 const bookingRepository = new BookingRepositoryImpl(remoteDataSource);
 const getBookingUseCase = new GetBookingUseCase(bookingRepository);
+const getCustomerBookingsUseCase = new GetCustomerBookingsUseCase(bookingRepository);
 
 export const useBookingStore = create<BookingState>((set) => ({
+  bookings: [],
   currentBooking: null,
   loading: false,
   error: null,
@@ -33,5 +38,15 @@ export const useBookingStore = create<BookingState>((set) => ({
     }
   },
 
-  clearState: () => set({ currentBooking: null, error: null, loading: false }),
+  fetchCustomerBookings: async (customerId: string) => {
+    set({ loading: true, error: null });
+    try {
+      const list = await getCustomerBookingsUseCase.execute(customerId);
+      set({ bookings: list, loading: false });
+    } catch (err: any) {
+      set({ error: err.message || 'Failed to load customer bookings', loading: false });
+    }
+  },
+
+  clearState: () => set({ bookings: [], currentBooking: null, error: null, loading: false }),
 }));

@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, Image } from 'react-native';
 
 interface BookingReviewFeedbackProps {
   workerName?: string;
   workerAvatar?: string;
   onReviewSubmitted?: (rating: number, reviewText: string, selectedTags: string[]) => void;
+  initialRating?: number;
+  initialReview?: string;
 }
 
 const FEEDBACK_TAGS = [
@@ -19,12 +21,24 @@ export const BookingReviewFeedback: React.FC<BookingReviewFeedbackProps> = ({
   workerName = 'Ayaan Sheikh',
   workerAvatar = 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
   onReviewSubmitted,
+  initialRating,
+  initialReview,
 }) => {
-  const [rating, setRating] = useState<number>(0);
-  const [reviewText, setReviewText] = useState<string>('');
+  const [rating, setRating] = useState<number>(initialRating || 0);
+  const [reviewText, setReviewText] = useState<string>(initialReview || '');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [isSubmitted, setIsSubmitted] = useState<boolean>(false);
+  const [isSubmitted, setIsSubmitted] = useState<boolean>(!!initialRating);
+
+  useEffect(() => {
+    if (initialRating !== undefined) {
+      setRating(initialRating);
+      setIsSubmitted(!!initialRating);
+    }
+    if (initialReview !== undefined) {
+      setReviewText(initialReview);
+    }
+  }, [initialRating, initialReview]);
 
   const handleToggleTag = (tagLabel: string) => {
     if (selectedTags.includes(tagLabel)) {

@@ -34,6 +34,9 @@ import { BookingChatDrawer } from '../components/BookingChatDrawer';
 import { BookingActivityTimeline } from '../components/BookingActivityTimeline';
 import { BookingCalendarSync } from '../components/BookingCalendarSync';
 import { BookingFAQSection } from '../components/BookingFAQSection';
+import { PaymentProcessingFlow } from '../components/PaymentProcessingFlow';
+import { useNotifications } from '../components/NotificationManager';
+import axios from 'axios';
 
 // Try to dynamically load react-native-reanimated for layout transitions
 let Reanimated: any = null;
@@ -127,8 +130,11 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
   bookingId,
   onBack,
 }) => {
+  const { showNotification } = useNotifications();
   const { currentBooking, loading, error, fetchBookingDetails } = useBookingStore();
   const [localStatus, setLocalStatus] = useState<string | null>(null);
+  const [localPaymentStatus, setLocalPaymentStatus] = useState<'UNPAID' | 'PAID'>('UNPAID');
+  const [localPaymentMethod, setLocalPaymentMethod] = useState<string>('');
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [showMap, setShowMap] = useState(true);
 
@@ -199,16 +205,44 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
   ];
 
   const handleConfirmCancel = () => {
-    setLocalStatus('CANCELLED');
-    setShowCancelModal(false);
-    // Reset state
-    setCancelReasonStep(1);
-    setSelectedReason('');
-    setOtherReasonText('');
     Alert.alert(
-      'Booking Cancelled',
-      'Your booking has been successfully cancelled. The provider has been notified.',
-      [{ text: 'OK' }]
+      'Confirm Cancellation',
+      'Are you sure you want to cancel this service request? This action cannot be undone.',
+      [
+        {
+          text: 'No, Keep It',
+          style: 'cancel',
+        },
+        {
+          text: 'Yes, Cancel',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('[Cancel Flow] Initiating cancellation request on backend...');
+              await axios.patch(
+                `https://api.hazir-app.com/api/v1/bookings/${bookingId}/status`,
+                {
+                  status: 'CANCELLED',
+                }
+              );
+              await fetchBookingDetails(bookingId);
+            } catch (err) {
+              console.error('[Cancel Flow] Failed to cancel booking on backend, falling back to local state:', err);
+            }
+            setLocalStatus('CANCELLED');
+            setShowCancelModal(false);
+            // Reset state
+            setCancelReasonStep(1);
+            setSelectedReason('');
+            setOtherReasonText('');
+            Alert.alert(
+              'Booking Cancelled',
+              'Your booking has been successfully cancelled. The provider has been notified.',
+              [{ text: 'OK' }]
+            );
+          }
+        }
+      ]
     );
   };
 
@@ -275,6 +309,168 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
   useEffect(() => {
     if (currentBooking) {
       setLocalStatus(currentBooking.status);
+      setLocalPaymentStatus(currentBooking.paymentStatus || 'UNPAID');
+      setLocalPaymentMethod(currentBooking.paymentMethod || '');
+    }
+  }, [currentBooking]);
+
+  const prevStatusRef = useRef<string | null>(null);
+  const prevMessagesCountRef = useRef<number>(-1);
+  const isChatOpenRef = useRef(isChatOpen);
+
+  // Keep ref in sync to avoid effect re-binding
+  useEffect(() => {
+    isChatOpenRef.current = isChatOpen;
+  }, [isChatOpen]);
+
+  // Main Background Polling and Simulation Trigger
+  useEffect(() => {
+    // Initialize refs with initial values when booking loads
+    if (currentBooking) {
+      if (prevStatusRef.current === null) {
+        prevStatusRef.current = currentBooking.status;
+      }
+    }
+
+    // 1. Setup a poller to refresh booking details & status from backend
+    const detailsInterval = setInterval(() => {
+      if (isOnline) {
+        fetchBookingDetails(bookingId).catch((err) =>
+          console.log('[Background Tracker] Failed to fetch details:', err)
+        );
+      }
+    }, 4000);
+
+    // 2. Setup a simulation for PENDING booking acceptance
+    let acceptTimeout: NodeJS.Timeout | null = null;
+    if (currentBooking && currentBooking.status === 'PENDING') {
+      acceptTimeout = setTimeout(async () => {
+        try {
+          console.log('[Simulation] Sending status update ACCEPTED for pending booking...');
+          const response = await axios.patch(
+            `https://api.hazir-app.com/api/v1/bookings/${bookingId}/status`,
+            {
+              status: 'ACCEPTED',
+              workerId: 'worker_ayaan_sheikh',
+            }
+          );
+          if (response.data?.success) {
+            fetchBookingDetails(bookingId);
+          }
+        } catch (e) {
+          console.warn('[Simulation] Failed to automatically advance status, falling back to local simulation:', e);
+          // Fallback local status simulation
+          setLocalStatus('ACCEPTED');
+          showNotification(
+            '🛠️ Technician Assigned!',
+            'Ayaan Sheikh has accepted your booking and is preparing tools.',
+            {
+              icon: '🛠️',
+              avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
+              onPress: () => setIsChatOpen(true),
+            }
+          );
+        }
+      }, 6000);
+    }
+
+    // 3. Setup message poller when chat is closed to alert of new incoming messages
+    const chatInterval = setInterval(async () => {
+      // Only poll when chat is NOT open to show notifications
+      if (!isChatOpenRef.current && isOnline) {
+        try {
+          const response = await axios.get<{ success: boolean; data: any[] }>(
+            `https://api.hazir-app.com/api/v1/bookings/${bookingId}/messages`
+          );
+          if (response.data?.success && response.data.data) {
+            const messages = response.data.data;
+            const currentCount = messages.length;
+
+            if (prevMessagesCountRef.current === -1) {
+              // Initial load of messages, just initialize count ref
+              prevMessagesCountRef.current = currentCount;
+            } else if (currentCount > prevMessagesCountRef.current) {
+              // Find new messages
+              const newMsgs = messages.slice(prevMessagesCountRef.current);
+              newMsgs.forEach((msg) => {
+                if (msg.sender === 'worker') {
+                  showNotification(
+                    '💬 Message from Ayaan',
+                    msg.text,
+                    {
+                      avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
+                      onPress: () => setIsChatOpen(true),
+                    }
+                  );
+                }
+              });
+              prevMessagesCountRef.current = currentCount;
+            }
+          }
+        } catch (e) {
+          console.log('[Background Messages Tracker] polling failed:', e);
+        }
+      } else if (isChatOpenRef.current && isOnline) {
+        // If chat is open, keep count in sync so closing it later doesn't trigger backlogs
+        try {
+          const response = await axios.get<{ success: boolean; data: any[] }>(
+            `https://api.hazir-app.com/api/v1/bookings/${bookingId}/messages`
+          );
+          if (response.data?.success && response.data.data) {
+            prevMessagesCountRef.current = response.data.data.length;
+          }
+        } catch (e) {
+          // Silent catch
+        }
+      }
+    }, 3000);
+
+    return () => {
+      clearInterval(detailsInterval);
+      clearInterval(chatInterval);
+      if (acceptTimeout) clearTimeout(acceptTimeout);
+    };
+  }, [bookingId, currentBooking?.status, isOnline]);
+
+  // Effect to watch status transitions of currentBooking and trigger local notifications
+  useEffect(() => {
+    if (currentBooking) {
+      const prevStatus = prevStatusRef.current;
+      const currentStatus = currentBooking.status;
+
+      if (prevStatus && prevStatus !== currentStatus) {
+        if (prevStatus === 'PENDING' && currentStatus === 'ACCEPTED') {
+          showNotification(
+            '🛠️ Technician Assigned!',
+            'Ayaan Sheikh has accepted your plumbing booking and is preparing tools.',
+            {
+              icon: '🛠️',
+              avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
+              onPress: () => setIsChatOpen(true),
+            }
+          );
+        } else if (prevStatus === 'ACCEPTED' && currentStatus === 'IN_PROGRESS') {
+          showNotification(
+            '🚙 Technician En Route!',
+            'Ayaan Sheikh is traveling to your location with your plumbing tools.',
+            {
+              icon: '🚙',
+              avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
+              onPress: () => setIsChatOpen(true),
+            }
+          );
+        } else if (prevStatus === 'IN_PROGRESS' && currentStatus === 'COMPLETED') {
+          showNotification(
+            '🎉 Service Completed!',
+            'Your plumbing service has been completed. Please review the invoice and pay.',
+            {
+              icon: '🎉',
+              avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
+            }
+          );
+        }
+      }
+      prevStatusRef.current = currentStatus;
     }
   }, [currentBooking]);
 
@@ -650,13 +846,52 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
               <BookingReviewFeedback
                 workerName="Ayaan Sheikh"
                 workerAvatar="https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200"
-                onReviewSubmitted={(rating, review, tags) => {
-                  console.log(`[Inline Review] Worker: Ayaan Sheikh. Rating: ${rating}. Review: ${review}. Tags: ${tags.join(', ')}`);
+                initialRating={currentBooking?.rating}
+                initialReview={currentBooking?.review}
+                onReviewSubmitted={async (rating, review, tags) => {
+                  try {
+                    console.log(`[Inline Review] Worker: Ayaan Sheikh. Rating: ${rating}. Review: ${review}. Tags: ${tags.join(', ')}`);
+                    const finalReview = review + (tags.length > 0 ? ` [${tags.join(', ')}]` : '');
+                    const response = await axios.post(
+                      `https://api.hazir-app.com/api/v1/bookings/${bookingId}/rate`,
+                      {
+                        rating,
+                        review: finalReview,
+                      }
+                    );
+                    if (response.data?.success) {
+                      await fetchBookingDetails(bookingId);
+                    }
+                  } catch (err) {
+                    console.error('Failed to submit feedback rating to backend API:', err);
+                  }
                 }}
               />
             )}
 
-            <BillingCard totalPrice={finalPrice} extraPrice={extraPrice} />
+            {activeStatus === 'COMPLETED' && (
+              <PaymentProcessingFlow
+                bookingId={currentBooking.id}
+                totalPrice={finalPrice}
+                isAlreadyPaid={localPaymentStatus === 'PAID'}
+                paymentMethod={localPaymentMethod}
+                onPaymentSuccess={(method) => {
+                  setLocalPaymentStatus('PAID');
+                  setLocalPaymentMethod(method);
+                  Alert.alert(
+                    'Secure Payment Successful',
+                    `Your payment of PKR ${finalPrice.toLocaleString()} via ${method} has been securely processed. Thank you for choosing Hazir!`,
+                    [{ text: 'OK' }]
+                  );
+                }}
+              />
+            )}
+
+            <BillingCard
+              totalPrice={finalPrice}
+              extraPrice={extraPrice}
+              paymentMethod={localPaymentStatus === 'PAID' ? localPaymentMethod : 'Pending Secure Payment'}
+            />
 
             <BookingFAQSection />
 
@@ -677,7 +912,18 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
               <View>
                 <TouchableOpacity
                   style={styles.completeJobButton}
-                  onPress={() => {
+                  onPress={async () => {
+                    try {
+                      await axios.patch(
+                        `https://api.hazir-app.com/api/v1/bookings/${bookingId}/status`,
+                        {
+                          status: 'COMPLETED',
+                        }
+                      );
+                      await fetchBookingDetails(bookingId);
+                    } catch (err) {
+                      console.log('Failed to update status to COMPLETED on backend:', err);
+                    }
                     setLocalStatus('COMPLETED');
                     setShowRatingModal(true);
                   }}
@@ -704,8 +950,22 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
             <RatingModal
               visible={showRatingModal}
               onClose={() => setShowRatingModal(false)}
-              onSubmit={(rating, review) => {
-                console.log(`Submitted review for Ayaan Sheikh: Rating ${rating}, ${review}`);
+              onSubmit={async (rating, review) => {
+                try {
+                  console.log(`Submitted review for Ayaan Sheikh via modal: Rating ${rating}, ${review}`);
+                  const response = await axios.post(
+                    `https://api.hazir-app.com/api/v1/bookings/${bookingId}/rate`,
+                    {
+                      rating,
+                      review,
+                    }
+                  );
+                  if (response.data?.success) {
+                    await fetchBookingDetails(bookingId);
+                  }
+                } catch (err) {
+                  console.error('Failed to submit modal feedback rating to backend API:', err);
+                }
               }}
               workerName="Ayaan Sheikh"
             />
@@ -842,6 +1102,7 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
             <BookingChatDrawer
               isOpen={isChatOpen}
               onClose={() => setIsChatOpen(false)}
+              bookingId={currentBooking.id}
               workerName="Ayaan Sheikh"
             />
           </View>

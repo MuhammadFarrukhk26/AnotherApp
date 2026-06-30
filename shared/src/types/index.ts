@@ -19,6 +19,10 @@ export interface Booking {
   longitude: number;
   beforePhoto?: string;
   afterPhoto?: string;
+  paymentStatus?: 'UNPAID' | 'PAID';
+  paymentMethod?: string;
+  rating?: number;
+  review?: string;
   createdAt: string;
 }
 

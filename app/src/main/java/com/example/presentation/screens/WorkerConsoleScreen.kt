@@ -56,6 +56,7 @@ fun WorkerConsoleScreen(
     var bookingToUploadProofId by remember { mutableStateOf<Int?>(null) }
     var selectedBeforePhoto by remember { mutableStateOf<String?>(null) }
     var selectedAfterPhoto by remember { mutableStateOf<String?>(null) }
+    var selectedJobTab by remember { mutableStateOf(0) } // 0: Active Jobs, 1: Past Jobs
 
     Scaffold(
         topBar = {
@@ -312,10 +313,57 @@ fun WorkerConsoleScreen(
             }
 
             // 4. Job Assignments Queue
-            Text("Assigned Active Jobs", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = NavySecondary)
-
             val activeAssignedJobs = bookings.filter { it.status != "COMPLETED" && it.status != "CANCELLED" }
-            if (activeAssignedJobs.isEmpty()) {
+            val pastJobs = bookings.filter { it.status == "COMPLETED" || it.status == "CANCELLED" }
+            val currentJobList = if (selectedJobTab == 0) activeAssignedJobs else pastJobs
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Job Assignments",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = NavySecondary
+                )
+
+                // Custom Segmented Pill Tab Switcher
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    val jobTabs = listOf("Active (${activeAssignedJobs.size})", "Past (${pastJobs.size})")
+                    jobTabs.forEachIndexed { index, title ->
+                        val isSelected = selectedJobTab == index
+                        val bg = if (isSelected) NavySecondary else Color.Transparent
+                        val tc = if (isSelected) Color.White else Color.Gray
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(bg)
+                                .clickable { selectedJobTab = index }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .testTag("worker_job_tab_$index"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = title,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = tc
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (currentJobList.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -324,8 +372,13 @@ fun WorkerConsoleScreen(
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                     contentAlignment = Alignment.Center
                 ) {
+                    val noJobsMsg = if (selectedJobTab == 0) {
+                        if (isOnline) "No active job bookings yet.\nKeep the app open!" else "Go ONLINE to receive booking requests."
+                    } else {
+                        "You have no completed or past jobs yet."
+                    }
                     Text(
-                        text = if (isOnline) "No active job bookings yet.\nKeep the app open!" else "Go ONLINE to receive booking requests.",
+                        text = noJobsMsg,
                         color = Color.Gray,
                         fontSize = 12.sp,
                         textAlign = TextAlign.Center,
@@ -334,9 +387,12 @@ fun WorkerConsoleScreen(
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    activeAssignedJobs.forEach { job ->
+                    currentJobList.forEach { job ->
                         Card(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onTrackBooking(job.id) }
+                                .testTag("worker_job_card_${job.id}"),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                         ) {
                             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -357,43 +413,53 @@ fun WorkerConsoleScreen(
                                     }
 
                                     // Action buttons depending on state
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        // Open Active Track/Chat
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        // Open Active Track/Chat/Details
                                         IconButton(
                                             onClick = { onTrackBooking(job.id) },
                                             modifier = Modifier
                                                 .clip(CircleShape)
                                                 .background(NavySecondary.copy(alpha = 0.1f))
                                                 .size(36.dp)
+                                                .testTag("worker_job_chat_${job.id}")
                                         ) {
-                                            Icon(Icons.Default.Chat, contentDescription = "Chat", tint = NavySecondary, modifier = Modifier.size(18.dp))
+                                            Icon(Icons.Default.Chat, contentDescription = "Chat and Details", tint = NavySecondary, modifier = Modifier.size(18.dp))
                                         }
 
-                                        when (job.status) {
-                                            "ACCEPTED", "ARRIVED" -> {
-                                                Button(
-                                                    onClick = { viewModel.startJobWorker(job.id) },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                                                    modifier = Modifier.height(36.dp),
-                                                    shape = RoundedCornerShape(8.dp)
-                                                ) {
-                                                    Text("Start Work Task", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        if (selectedJobTab == 0) {
+                                            when (job.status) {
+                                                "ACCEPTED", "ARRIVED" -> {
+                                                    Button(
+                                                        onClick = { viewModel.startJobWorker(job.id) },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                                        modifier = Modifier.height(36.dp).testTag("worker_start_job_${job.id}"),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    ) {
+                                                        Text("Start Work Task", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                                "STARTED" -> {
+                                                    Button(
+                                                        onClick = {
+                                                            selectedBeforePhoto = null
+                                                            selectedAfterPhoto = null
+                                                            bookingToUploadProofId = job.id
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                                        modifier = Modifier.height(36.dp).testTag("worker_complete_job_${job.id}"),
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    ) {
+                                                        Text("Complete Task", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
                                                 }
                                             }
-                                            "STARTED" -> {
-                                                Button(
-                                                    onClick = {
-                                                        selectedBeforePhoto = null
-                                                        selectedAfterPhoto = null
-                                                        bookingToUploadProofId = job.id
-                                                    },
-                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                                                    modifier = Modifier.height(36.dp),
-                                                    shape = RoundedCornerShape(8.dp)
-                                                ) {
-                                                    Text("Complete Task", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        } else {
+                                            if (job.status == "COMPLETED" && job.rating != null) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    Icon(Icons.Default.Star, contentDescription = "Rating Star", tint = Color(0xFFFFB300), modifier = Modifier.size(14.dp))
+                                                    Text("${job.rating}/5", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
                                                 }
                                             }
                                         }

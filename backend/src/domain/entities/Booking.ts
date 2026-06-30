@@ -14,8 +14,26 @@ export class Booking implements IBooking {
     public createdAt: string,
     public workerId?: string,
     public beforePhoto?: string,
-    public afterPhoto?: string
+    public afterPhoto?: string,
+    public paymentStatus?: 'UNPAID' | 'PAID',
+    public paymentMethod?: string,
+    public rating?: number,
+    public review?: string
   ) {}
+
+  public rate(rating: number, review?: string): void {
+    if (this.status !== 'COMPLETED') {
+      throw new Error(`Cannot rate a booking that is not completed (current: ${this.status})`);
+    }
+    if (this.paymentStatus !== 'PAID') {
+      throw new Error(`Cannot rate a booking that is not paid yet`);
+    }
+    if (rating < 1 || rating > 5) {
+      throw new Error(`Rating must be between 1 and 5`);
+    }
+    this.rating = rating;
+    this.review = review;
+  }
 
   public accept(workerId: string): void {
     if (this.status !== 'PENDING') {
@@ -39,6 +57,15 @@ export class Booking implements IBooking {
     this.status = 'COMPLETED';
     this.beforePhoto = beforePhoto;
     this.afterPhoto = afterPhoto;
+    this.paymentStatus = 'UNPAID'; // initialized on completion
+  }
+
+  public pay(paymentMethod: string): void {
+    if (this.status !== 'COMPLETED') {
+      throw new Error(`Cannot pay for booking that is not completed yet (current: ${this.status})`);
+    }
+    this.paymentStatus = 'PAID';
+    this.paymentMethod = paymentMethod;
   }
 
   public cancel(): void {

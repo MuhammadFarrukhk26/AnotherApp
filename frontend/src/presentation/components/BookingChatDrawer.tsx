@@ -13,6 +13,7 @@ import {
   Image,
   ActivityIndicator,
 } from 'react-native';
+import axios from 'axios';
 
 interface Message {
   id: string;
@@ -24,6 +25,7 @@ interface Message {
 interface BookingChatDrawerProps {
   isOpen: boolean;
   onClose: () => void;
+  bookingId: string;
   workerName?: string;
   workerAvatar?: string;
 }
@@ -50,17 +52,18 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 export const BookingChatDrawer: React.FC<BookingChatDrawerProps> = ({
   isOpen,
   onClose,
+  bookingId,
   workerName = 'Ayaan Sheikh',
   workerAvatar = 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
 }) => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: '1',
-      text: `Hello! I am Ayaan, your assigned technician today. I am currently preparing my service equipment and will head out shortly.`,
-      sender: 'worker',
-      timestamp: '02:15 PM',
-    },
-  ]);
+  const initialGreeting: Message = {
+    id: '1',
+    text: `Hello! I am ${workerName}, your assigned technician today. I am currently preparing my service equipment and will head out shortly.`,
+    sender: 'worker',
+    timestamp: '02:15 PM',
+  };
+
+  const [messages, setMessages] = useState<Message[]>([initialGreeting]);
   const [inputText, setInputText] = useState<string>('');
   const [isWorkerTyping, setIsWorkerTyping] = useState<boolean>(false);
 
@@ -69,8 +72,46 @@ export const BookingChatDrawer: React.FC<BookingChatDrawerProps> = ({
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const scrollViewRef = useRef<ScrollView>(null);
 
+  const fetchMessages = async () => {
+    try {
+      const response = await axios.get<{ success: boolean; data: any[] }>(
+        `https://api.hazir-app.com/api/v1/bookings/${bookingId}/messages`
+      );
+      if (response.data && response.data.success) {
+        const remoteMsgs = response.data.data.map((m: any) => ({
+          id: m.id || Math.random().toString(),
+          text: m.text,
+          sender: m.sender,
+          timestamp: m.timestamp,
+        }));
+        
+        if (remoteMsgs.length > 0) {
+          setMessages(remoteMsgs);
+          
+          // Show typing indicator briefly if the user's message is the absolute newest and no reply is stored yet
+          const lastMsg = remoteMsgs[remoteMsgs.length - 1];
+          if (lastMsg && lastMsg.sender === 'user') {
+            setIsWorkerTyping(true);
+          } else {
+            setIsWorkerTyping(false);
+          }
+        } else {
+          setMessages([initialGreeting]);
+        }
+      }
+    } catch (e) {
+      console.warn('[BookingChatDrawer] Error pulling messages:', e);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
+      // Fetch immediately on open
+      fetchMessages();
+      
+      // Start polling
+      const interval = setInterval(fetchMessages, 2500);
+
       // Animate Drawer opening
       Animated.parallel([
         Animated.timing(slideAnim, {
@@ -84,9 +125,12 @@ export const BookingChatDrawer: React.FC<BookingChatDrawerProps> = ({
           useNativeDriver: true,
         }),
       ]).start(() => {
-        // Scroll to end once drawer opens
-        setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+        setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150);
       });
+
+      return () => {
+        clearInterval(interval);
+      };
     } else {
       // Animate Drawer closing
       Animated.parallel([
@@ -102,44 +146,58 @@ export const BookingChatDrawer: React.FC<BookingChatDrawerProps> = ({
         }),
       ]).start();
     }
-  }, [isOpen]);
+  }, [isOpen, bookingId]);
 
-  const handleSendMessage = (text: string) => {
+  const handleSendMessage = async (text: string) => {
     if (!text.trim()) return;
 
+    const trimmedText = text.trim();
     const currentTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const userMsg: Message = {
       id: Math.random().toString(),
-      text: text.trim(),
+      text: trimmedText,
       sender: 'user',
       timestamp: currentTime,
     };
 
+    // Optimistically update local UI instantly
     setMessages((prev) => [...prev, userMsg]);
     setInputText('');
+    setIsWorkerTyping(true);
     
-    // Auto-scroll to bottom
     setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 50);
 
-    // Simulate worker typing and reply
-    setIsWorkerTyping(true);
-    setTimeout(() => {
-      setIsWorkerTyping(false);
-      
-      const responseText = WORKER_RESPONSES[text] || WORKER_RESPONSES['default'];
-      const workerMsg: Message = {
-        id: Math.random().toString(),
-        text: responseText,
-        sender: 'worker',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-
-      setMessages((prev) => [...prev, workerMsg]);
-      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
-    }, 2000);
+    try {
+      // Post to Node/Express/MongoDB backend
+      await axios.post(
+        `https://api.hazir-app.com/api/v1/bookings/${bookingId}/messages`,
+        {
+          text: trimmedText,
+          sender: 'user',
+        }
+      );
+      // Immediately refresh messages
+      await fetchMessages();
+    } catch (err) {
+      console.warn('[BookingChatDrawer] Failed to send message to backend, falling back to local simulation:', err);
+      // Graceful offline simulation fallback
+      setTimeout(() => {
+        setIsWorkerTyping(false);
+        const responseText = WORKER_RESPONSES[trimmedText] || WORKER_RESPONSES['default'];
+        const workerMsg: Message = {
+          id: Math.random().toString(),
+          text: responseText,
+          sender: 'worker',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+        setMessages((prev) => [...prev, workerMsg]);
+        setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 100);
+      }, 1500);
+    }
   };
 
   if (!isOpen) return null;
+
 
   return (
     <Animated.View style={[styles.overlay, { opacity: opacityAnim }]}>

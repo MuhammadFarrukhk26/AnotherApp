@@ -721,64 +721,270 @@ fun BookingsHistoryTabContent(
     bookings: List<Booking>,
     onTrackBooking: (Int) -> Unit
 ) {
-    if (bookings.isEmpty()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(Icons.Default.EventNote, contentDescription = null, modifier = Modifier.size(72.dp), tint = Color.LightGray)
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("No bookings yet", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = NavySecondary)
-            Text("Your requested services in Islamabad will show up here.", textAlign = TextAlign.Center, fontSize = 13.sp, color = Color.Gray)
-        }
-    } else {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                Text("Your Service History", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = NavySecondary)
-            }
+    var selectedTab by remember { mutableStateOf(0) } // 0: Pending & Active, 1: Past Bookings
 
-            items(bookings) { booking ->
-                Card(
+    val pendingBookings = bookings.filter { it.status != "COMPLETED" && it.status != "CANCELLED" }
+    val pastBookings = bookings.filter { it.status == "COMPLETED" || it.status == "CANCELLED" }
+    val currentBookingsList = if (selectedTab == 0) pendingBookings else pastBookings
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Tab Header
+        Text(
+            text = "Your Bookings",
+            fontWeight = FontWeight.Black,
+            fontSize = 20.sp,
+            color = NavySecondary
+        )
+
+        // Custom Segmented Pill Tab Switcher
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            val tabs = listOf("Pending & Active (${pendingBookings.size})", "Past Bookings (${pastBookings.size})")
+            tabs.forEachIndexed { index, title ->
+                val isSelected = selectedTab == index
+                val background = if (isSelected) OrangePrimary else Color.Transparent
+                val textColor = if (isSelected) Color.White else NavySecondary
+
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onTrackBooking(booking.id) },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(background)
+                        .clickable { selectedTab = index }
+                        .padding(vertical = 12.dp)
+                        .testTag("bookings_segment_tab_$index"),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(booking.categoryName, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = NavySecondary)
-                            StatusBadge(booking.status)
-                        }
-                        Text(booking.description, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.Gray)
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = textColor
+                    )
+                }
+            }
+        }
 
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Column {
-                                Text("Date: ${booking.date} • ${booking.time}", fontSize = 11.sp, color = Color.Gray)
-                                Text("Price: PKR ${booking.estimatedPrice}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = OrangePrimary)
-                            }
-                            if (booking.status == "COMPLETED" && booking.rating != null) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFB300), modifier = Modifier.size(16.dp))
-                                    Text("${booking.rating}/5", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
-                                }
-                            } else if (booking.status != "COMPLETED" && booking.status != "CANCELLED") {
-                                Button(
-                                    onClick = { onTrackBooking(booking.id) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary.copy(alpha = 0.08f)),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(28.dp),
-                                    shape = RoundedCornerShape(6.dp)
+        if (currentBookingsList.isEmpty()) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                val icon = if (selectedTab == 0) Icons.Default.EventNote else Icons.Default.HistoryToggleOff
+                val title = if (selectedTab == 0) "No Active Bookings" else "No Past Bookings"
+                val description = if (selectedTab == 0) {
+                    "You have no pending or active service requests. Need something repaired? Select a category on the Home tab."
+                } else {
+                    "You have not completed any bookings yet. Your finished service history in Islamabad will appear here."
+                }
+
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(72.dp),
+                    tint = Color.LightGray
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = NavySecondary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = description,
+                    textAlign = TextAlign.Center,
+                    fontSize = 13.sp,
+                    color = Color.Gray,
+                    lineHeight = 18.sp
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(currentBookingsList, key = { it.id }) { booking ->
+                    val categoryIcon = getCategoryIconByCategoryId(booking.categoryId)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onTrackBooking(booking.id) }
+                            .testTag("booking_card_${booking.id}"),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Row 1: Category Icon, Name, and StatusBadge
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(OrangePrimary.copy(alpha = 0.08f)),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text("Track Live", color = OrangePrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Icon(
+                                        imageVector = categoryIcon,
+                                        contentDescription = booking.categoryName,
+                                        tint = OrangePrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = booking.categoryName,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = NavySecondary
+                                    )
+                                    Text(
+                                        text = "Booking #${booking.id}",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+
+                                StatusBadge(booking.status)
+                            }
+
+                            // Row 2: Description
+                            Text(
+                                text = booking.description,
+                                fontSize = 13.sp,
+                                color = NavySecondary.copy(alpha = 0.8f),
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                lineHeight = 18.sp
+                            )
+
+                            Divider(color = MaterialTheme.colorScheme.surfaceVariant, thickness = 1.dp)
+
+                            // Row 3: Meta info and Action Buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CalendarToday,
+                                            contentDescription = null,
+                                            tint = Color.Gray,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Text(
+                                            text = "${booking.date} • ${booking.time}",
+                                            fontSize = 11.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                    Text(
+                                        text = "PKR ${booking.estimatedPrice}",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = OrangePrimary
+                                    )
+                                }
+
+                                if (booking.status == "COMPLETED") {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        if (booking.rating != null) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                repeat(booking.rating) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Star,
+                                                        contentDescription = "Star Rating",
+                                                        tint = Color(0xFFFFB300),
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "${booking.rating}/5",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = NavySecondary
+                                                )
+                                            }
+                                        } else {
+                                            Text(
+                                                text = "Completed",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF1B5E20)
+                                            )
+                                        }
+                                    }
+                                } else if (booking.status == "CANCELLED") {
+                                    Text(
+                                        text = "Cancelled",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFC62828)
+                                    )
+                                } else {
+                                    Button(
+                                        onClick = { onTrackBooking(booking.id) },
+                                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary.copy(alpha = 0.08f)),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                        modifier = Modifier
+                                            .height(32.dp)
+                                            .testTag("track_button_${booking.id}"),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CompassCalibration,
+                                                contentDescription = null,
+                                                tint = OrangePrimary,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Text(
+                                                text = "Track Live",
+                                                color = OrangePrimary,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -786,6 +992,21 @@ fun BookingsHistoryTabContent(
                 }
             }
         }
+    }
+}
+
+// Resolver for booking category icon
+fun getCategoryIconByCategoryId(categoryId: String): ImageVector {
+    return when (categoryId) {
+        "electrician" -> Icons.Default.Bolt
+        "plumber" -> Icons.Default.Plumbing
+        "ac_technician" -> Icons.Default.AcUnit
+        "cleaner" -> Icons.Default.CleaningServices
+        "painter" -> Icons.Default.FormatPaint
+        "carpenter" -> Icons.Default.Construction
+        "mechanic" -> Icons.Default.Build
+        "mover" -> Icons.Default.LocalShipping
+        else -> Icons.Default.Handyman
     }
 }
 
