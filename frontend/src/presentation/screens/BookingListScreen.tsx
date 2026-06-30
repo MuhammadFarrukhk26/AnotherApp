@@ -16,9 +16,11 @@ import { Card } from '../components/Card';
 import { StatusBadge } from '../components/StatusBadge';
 import { CategoryFilter } from '../components/CategoryFilter';
 import { Booking } from '../../domain/models/Booking';
+import { useTheme } from '../state/ThemeContext';
 
 const BookingCardSkeleton: React.FC = () => {
   const pulseAnim = useRef(new Animated.Value(0.3)).current;
+  const { colors } = useTheme();
 
   useEffect(() => {
     const pulse = Animated.loop(
@@ -44,35 +46,35 @@ const BookingCardSkeleton: React.FC = () => {
       <View style={styles.cardHeader}>
         <View style={styles.serviceInfo}>
           {/* Icon Container Placeholder */}
-          <Animated.View style={[styles.skeletonIcon, { opacity: pulseAnim }]} />
+          <Animated.View style={[styles.skeletonIcon, { opacity: pulseAnim, backgroundColor: colors.border }]} />
           
           <View style={{ gap: 6 }}>
             {/* Title Placeholder */}
-            <Animated.View style={[styles.skeletonTitle, { opacity: pulseAnim }]} />
+            <Animated.View style={[styles.skeletonTitle, { opacity: pulseAnim, backgroundColor: colors.border }]} />
             {/* Subtitle/ID Placeholder */}
-            <Animated.View style={[styles.skeletonSubtitle, { opacity: pulseAnim }]} />
+            <Animated.View style={[styles.skeletonSubtitle, { opacity: pulseAnim, backgroundColor: colors.border }]} />
           </View>
         </View>
 
         {/* Status Badge Placeholder */}
-        <Animated.View style={[styles.skeletonBadge, { opacity: pulseAnim }]} />
+        <Animated.View style={[styles.skeletonBadge, { opacity: pulseAnim, backgroundColor: colors.border }]} />
       </View>
 
       {/* Address Placeholder */}
-      <Animated.View style={[styles.skeletonAddress, { opacity: pulseAnim }]} />
+      <Animated.View style={[styles.skeletonAddress, { opacity: pulseAnim, backgroundColor: colors.border }]} />
 
-      <View style={styles.cardDivider} />
+      <View style={[styles.cardDivider, { backgroundColor: colors.border }]} />
 
       <View style={styles.cardFooter}>
         <View style={{ gap: 6 }}>
           {/* Label Placeholder */}
-          <Animated.View style={[styles.skeletonMetaLabel, { opacity: pulseAnim }]} />
+          <Animated.View style={[styles.skeletonMetaLabel, { opacity: pulseAnim, backgroundColor: colors.border }]} />
           {/* Value Placeholder */}
-          <Animated.View style={[styles.skeletonMetaValue, { opacity: pulseAnim }]} />
+          <Animated.View style={[styles.skeletonMetaValue, { opacity: pulseAnim, backgroundColor: colors.border }]} />
         </View>
 
         {/* Price Placeholder */}
-        <Animated.View style={[styles.skeletonPrice, { opacity: pulseAnim }]} />
+        <Animated.View style={[styles.skeletonPrice, { opacity: pulseAnim, backgroundColor: colors.border }]} />
       </View>
     </Card>
   );
@@ -92,6 +94,7 @@ export const BookingListScreen: React.FC<BookingListScreenProps> = ({
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const { colors, isDark, toggleTheme } = useTheme();
 
   useEffect(() => {
     fetchCustomerBookings(customerId);
@@ -197,30 +200,30 @@ export const BookingListScreen: React.FC<BookingListScreenProps> = ({
         <Card style={styles.bookingCard}>
           <View style={styles.cardHeader}>
             <View style={styles.serviceInfo}>
-              <View style={styles.iconContainer}>
+              <View style={[styles.iconContainer, { backgroundColor: isDark ? '#2E2D56' : '#ECFDF5' }]}>
                 <Text style={styles.serviceIcon}>{getServiceIcon(item.serviceType)}</Text>
               </View>
               <View>
-                <Text style={styles.serviceName}>{getServiceTitle(item.serviceType)}</Text>
-                <Text style={styles.bookingId}>Booking #{item.id}</Text>
+                <Text style={[styles.serviceName, { color: colors.text }]}>{getServiceTitle(item.serviceType)}</Text>
+                <Text style={[styles.bookingId, { color: colors.textMuted }]}>Booking #{item.id}</Text>
               </View>
             </View>
             <StatusBadge status={item.status} />
           </View>
 
-          <Text style={styles.addressText} numberOfLines={1}>
+          <Text style={[styles.addressText, { color: colors.textSecondary }]} numberOfLines={1}>
             📍 {item.address}
           </Text>
 
-          <View style={styles.cardDivider} />
+          <View style={[styles.cardDivider, { backgroundColor: colors.border }]} />
 
           <View style={styles.cardFooter}>
             <View>
               <Text style={styles.metaLabel}>Scheduled For</Text>
-              <Text style={styles.metaValue}>{item.scheduledTime}</Text>
+              <Text style={[styles.metaValue, { color: colors.textSecondary }]}>{item.scheduledTime}</Text>
             </View>
-            <View style={styles.priceContainer}>
-              <Text style={styles.priceText}>{item.formattedPrice}</Text>
+            <View style={[styles.priceContainer, { backgroundColor: isDark ? '#115E59' : '#F0FDF4' }]}>
+              <Text style={[styles.priceText, { color: isDark ? '#2DD4BF' : '#10B981' }]}>{item.formattedPrice}</Text>
             </View>
           </View>
         </Card>
@@ -255,8 +258,8 @@ export const BookingListScreen: React.FC<BookingListScreenProps> = ({
     return (
       <View style={styles.emptyContainer}>
         <Text style={styles.emptyIcon}>{(isFiltered || isSearched) ? '🔍' : (isPending ? '📅' : '📂')}</Text>
-        <Text style={styles.emptyTitle}>{title}</Text>
-        <Text style={styles.emptyMessage}>{message}</Text>
+        <Text style={[styles.emptyTitle, { color: colors.text }]}>{title}</Text>
+        <Text style={[styles.emptyMessage, { color: colors.textMuted }]}>{message}</Text>
         <TouchableOpacity 
           style={styles.retryButton} 
           onPress={() => {
@@ -275,29 +278,39 @@ export const BookingListScreen: React.FC<BookingListScreenProps> = ({
   };
 
   return (
-    <SafeAreaView style={styles.screenContainer}>
+    <SafeAreaView style={[styles.screenContainer, { backgroundColor: colors.background }]}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Hazir Bookings</Text>
-        <Text style={styles.headerSubtitle}>Manage your home & office services</Text>
+        <View style={styles.headerTopRow}>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Hazir Bookings</Text>
+          <TouchableOpacity
+            style={[styles.themeToggleBtn, { backgroundColor: colors.border }]}
+            onPress={toggleTheme}
+            activeOpacity={0.8}
+            testID="theme_toggle_list"
+          >
+            <Text style={styles.themeToggleBtnText}>{isDark ? '☀️' : '🌙'}</Text>
+          </TouchableOpacity>
+        </View>
+        <Text style={[styles.headerSubtitle, { color: colors.textMuted }]}>Manage your home & office services</Text>
       </View>
 
       {/* Tabs */}
-      <View style={styles.tabContainer}>
+      <View style={[styles.tabContainer, { backgroundColor: colors.border }]}>
         <TouchableOpacity
-          style={[styles.tab, activeTab === 'pending' && styles.activeTab]}
+          style={[styles.tab, activeTab === 'pending' && [styles.activeTab, { backgroundColor: colors.card }]]}
           onPress={() => setActiveTab('pending')}
           testID="tab_pending"
         >
-          <Text style={[styles.tabText, activeTab === 'pending' && styles.activeTabText]}>
+          <Text style={[styles.tabText, activeTab === 'pending' ? [styles.activeTabText, { color: colors.text }] : { color: colors.textMuted }]}>
             Active ({pendingBookings.length})
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.tab, activeTab === 'past' && styles.activeTab]}
+          style={[styles.tab, activeTab === 'past' && [styles.activeTab, { backgroundColor: colors.card }]]}
           onPress={() => setActiveTab('past')}
           testID="tab_past"
         >
-          <Text style={[styles.tabText, activeTab === 'past' && styles.activeTabText]}>
+          <Text style={[styles.tabText, activeTab === 'past' ? [styles.activeTabText, { color: colors.text }] : { color: colors.textMuted }]}>
             Past ({pastBookings.length})
           </Text>
         </TouchableOpacity>
@@ -305,12 +318,12 @@ export const BookingListScreen: React.FC<BookingListScreenProps> = ({
 
       {/* Search Bar */}
       <View style={styles.searchBarContainer}>
-        <View style={styles.searchInner}>
+        <View style={[styles.searchInner, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: colors.text }]}
             placeholder="Search provider, service, or address..."
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor={isDark ? '#64748B' : '#94A3B8'}
             value={searchQuery}
             onChangeText={setSearchQuery}
             autoCapitalize="none"
@@ -658,5 +671,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#94A3B8',
     fontWeight: '700',
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  themeToggleBtn: {
+    padding: 8,
+    borderRadius: 12,
+    minWidth: 38,
+    height: 38,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  themeToggleBtnText: {
+    fontSize: 16,
   },
 });

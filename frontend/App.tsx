@@ -1,27 +1,38 @@
 import React, { useState } from 'react';
-import { StyleSheet, SafeAreaView } from 'react-native';
+import { StyleSheet, SafeAreaView, StatusBar } from 'react-native';
 import { BookingListScreen } from './src/presentation/screens/BookingListScreen';
 import { BookingDetailScreen } from './src/presentation/screens/BookingDetailScreen';
 import { NotificationProvider } from './src/presentation/components/NotificationManager';
+import { ThemeProvider, useTheme } from './src/presentation/state/ThemeContext';
 
-export default function App() {
+function MainApp() {
   const [activeBookingId, setActiveBookingId] = useState<string | null>(null);
+  const { colors, isDark } = useTheme();
 
   return (
-    <NotificationProvider>
-      <SafeAreaView style={styles.container}>
-        {activeBookingId ? (
-          <BookingDetailScreen
-            bookingId={activeBookingId}
-            onBack={() => setActiveBookingId(null)}
-          />
-        ) : (
-          <BookingListScreen
-            onSelectBooking={(id) => setActiveBookingId(id)}
-          />
-        )}
-      </SafeAreaView>
-    </NotificationProvider>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
+      {activeBookingId ? (
+        <BookingDetailScreen
+          bookingId={activeBookingId}
+          onBack={() => setActiveBookingId(null)}
+        />
+      ) : (
+        <BookingListScreen
+          onSelectBooking={(id) => setActiveBookingId(id)}
+        />
+      )}
+    </SafeAreaView>
+  );
+}
+
+export default function App() {
+  return (
+    <ThemeProvider>
+      <NotificationProvider>
+        <MainApp />
+      </NotificationProvider>
+    </ThemeProvider>
   );
 }
 

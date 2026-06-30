@@ -1,6 +1,8 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { useTheme } from '../state/ThemeContext';
+
 export interface Category {
   id: string;
   name: string;
@@ -31,6 +33,8 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
   selectedCategoryId,
   onSelectCategory,
 }) => {
+  const { colors } = useTheme();
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -47,7 +51,9 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
               onPress={() => onSelectCategory(category.id)}
               style={[
                 styles.chip,
-                isActive ? styles.activeChip : styles.inactiveChip,
+                isActive 
+                  ? styles.activeChip 
+                  : [styles.inactiveChip, { backgroundColor: colors.card, borderColor: colors.border }],
               ]}
               testID={`category_chip_${category.id}`}
             >
@@ -55,7 +61,9 @@ export const CategoryFilter: React.FC<CategoryFilterProps> = ({
               <Text
                 style={[
                   styles.chipText,
-                  isActive ? styles.activeChipText : styles.inactiveChipText,
+                  isActive 
+                    ? styles.activeChipText 
+                    : [styles.inactiveChipText, { color: colors.textSecondary }],
                 ]}
               >
                 {category.name}

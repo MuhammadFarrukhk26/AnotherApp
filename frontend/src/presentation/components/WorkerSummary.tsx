@@ -9,6 +9,8 @@ interface WorkerSummaryProps {
   workerJobsCount?: number;
   avatarUrl?: string;
   onMessagePressed?: () => void;
+  isFavorite?: boolean;
+  onFavoriteToggle?: () => void;
 }
 
 export const WorkerSummary: React.FC<WorkerSummaryProps> = ({
@@ -19,6 +21,8 @@ export const WorkerSummary: React.FC<WorkerSummaryProps> = ({
   workerJobsCount = 186,
   avatarUrl = 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
   onMessagePressed,
+  isFavorite = false,
+  onFavoriteToggle,
 }) => {
   const [showContactModal, setShowContactModal] = useState(false);
 
@@ -51,6 +55,21 @@ export const WorkerSummary: React.FC<WorkerSummaryProps> = ({
         <View style={styles.statusDot} />
         <Text style={styles.statusText}>ASSIGNED SPECIALIST • ONLINE & EN ROUTE</Text>
       </View>
+
+      {/* Favorite Toggle Button */}
+      {onFavoriteToggle && (
+        <TouchableOpacity
+          style={styles.favoriteButton}
+          onPress={onFavoriteToggle}
+          activeOpacity={0.7}
+          testID={`favorite_worker_button_${workerId}`}
+          accessible={true}
+          accessibilityLabel={isFavorite ? "Remove worker from favorites" : "Save worker to favorites"}
+          accessibilityRole="button"
+        >
+          <Text style={styles.favoriteIconText}>{isFavorite ? '❤️' : '🤍'}</Text>
+        </TouchableOpacity>
+      )}
 
       <View style={styles.profileRow}>
         <View style={styles.avatarContainer}>
@@ -172,6 +191,29 @@ const styles = StyleSheet.create({
     elevation: 3,
     marginTop: 16,
     overflow: 'hidden',
+    position: 'relative',
+  },
+  favoriteButton: {
+    position: 'absolute',
+    top: 14,
+    right: 14,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    zIndex: 10,
+  },
+  favoriteIconText: {
+    fontSize: 20,
   },
   statusBar: {
     flexDirection: 'row',

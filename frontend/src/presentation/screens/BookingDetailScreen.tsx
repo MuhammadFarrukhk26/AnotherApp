@@ -37,6 +37,7 @@ import { BookingFAQSection } from '../components/BookingFAQSection';
 import { PaymentProcessingFlow } from '../components/PaymentProcessingFlow';
 import { useNotifications } from '../components/NotificationManager';
 import axios from 'axios';
+import { useTheme } from '../state/ThemeContext';
 
 // Try to dynamically load react-native-reanimated for layout transitions
 let Reanimated: any = null;
@@ -131,7 +132,15 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
   onBack,
 }) => {
   const { showNotification } = useNotifications();
-  const { currentBooking, loading, error, fetchBookingDetails } = useBookingStore();
+  const { colors, isDark, toggleTheme } = useTheme();
+  const { 
+    currentBooking, 
+    loading, 
+    error, 
+    fetchBookingDetails,
+    favoriteWorkerIds,
+    toggleFavoriteWorker 
+  } = useBookingStore();
   const [localStatus, setLocalStatus] = useState<string | null>(null);
   const [localPaymentStatus, setLocalPaymentStatus] = useState<'UNPAID' | 'PAID'>('UNPAID');
   const [localPaymentMethod, setLocalPaymentMethod] = useState<string>('');
@@ -194,6 +203,114 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
   const [cancelReasonStep, setCancelReasonStep] = useState(1); // 1 = Reason selection, 2 = Confirmation
   const [selectedReason, setSelectedReason] = useState<string>('');
   const [otherReasonText, setOtherReasonText] = useState<string>('');
+
+  // Repeat / Recurring Booking State
+  const [showRepeatModal, setShowRepeatModal] = useState(false);
+  const [showPriceBreakdownModal, setShowPriceBreakdownModal] = useState(false);
+  const [repeatFrequency, setRepeatFrequency] = useState<'weekly' | 'biweekly' | 'monthly'>('weekly');
+  const [repeatCount, setRepeatCount] = useState<number>(4);
+  const [repeatDay, setRepeatDay] = useState<string>('Monday');
+  const [repeatTime, setRepeatTime] = useState<string>('09:00 AM');
+  const [isSchedulingRepeat, setIsSchedulingRepeat] = useState(false);
+
+  const handleScheduleRecurring = async () => {
+    if (!currentBooking) return;
+    setIsSchedulingRepeat(true);
+    try {
+      const baseDate = new Date();
+      const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const targetDayIndex = daysOfWeek.indexOf(repeatDay);
+      
+      const [timeStr, ampm] = repeatTime.split(' ');
+      let [hours, minutes] = timeStr.split(':').map(Number);
+      if (ampm === 'PM' && hours < 12) hours += 12;
+      if (ampm === 'AM' && hours === 12) hours = 0;
+
+      for (let i = 1; i <= repeatCount; i++) {
+        const nextDate = new Date(baseDate);
+        nextDate.setHours(hours, minutes, 0, 0);
+
+        let daysToAdd = 0;
+        if (repeatFrequency === 'weekly') {
+          daysToAdd = i * 7;
+        } else if (repeatFrequency === 'biweekly') {
+          daysToAdd = i * 14;
+        } else if (repeatFrequency === 'monthly') {
+          daysToAdd = i * 30;
+        }
+
+        const currentDayIndex = nextDate.getDay();
+        let dayDiff = targetDayIndex - currentDayIndex;
+        if (dayDiff <= 0) {
+          dayDiff += 7;
+        }
+        
+        nextDate.setDate(nextDate.getDate() + dayDiff + (daysToAdd - 7));
+
+        await scheduleBooking({
+          serviceType: currentBooking.serviceType,
+          address: currentBooking.address,
+          price: currentBooking.price,
+          latitude: currentBooking.latitude,
+          longitude: currentBooking.longitude,
+          scheduledTime: nextDate.toISOString(),
+        });
+      }
+
+      setIsSchedulingRepeat(false);
+      setShowRepeatModal(false);
+      
+      Alert.alert(
+        '🔄 Recurring Service Scheduled!',
+        `Successfully scheduled ${repeatCount} recurring ${repeatFrequency} ${currentBooking.serviceType.toLowerCase()} bookings starting next ${repeatDay} at ${repeatTime}!`,
+        [{ text: 'Great!' }]
+      );
+    } catch (err: any) {
+      setIsSchedulingRepeat(false);
+      Alert.alert('Scheduling Failed', err.message || 'Could not schedule recurring bookings.');
+    }
+  };
+
+  const getPriceBreakdown = () => {
+    if (!currentBooking) return { labor: 0, materials: 0, tax: 0, description: '', laborLabel: '', materialsLabel: '', taxLabel: '' };
+    
+    const serviceType = currentBooking.serviceType.toLowerCase();
+    let laborPercentage = 0.65;
+    let materialsPercentage = 0.20;
+    let taxPercentage = 0.15;
+    let description = 'Standard rates applied based on task requirements.';
+
+    if (serviceType.includes('clean') || serviceType.includes('maid') || serviceType.includes('wash')) {
+      laborPercentage = 0.70;
+      materialsPercentage = 0.15;
+      taxPercentage = 0.15;
+      description = 'Standard cleaning service: covers high-grade eco-friendly cleaning supplies and expert labor.';
+    } else if (serviceType.includes('plumb') || serviceType.includes('electr') || serviceType.includes('repair') || serviceType.includes('handy')) {
+      laborPercentage = 0.60;
+      materialsPercentage = 0.25;
+      taxPercentage = 0.15;
+      description = 'Technical maintenance: covers standard spare parts, specialty diagnostic tools, and professional labor.';
+    } else if (serviceType.includes('beauty') || serviceType.includes('salon') || serviceType.includes('spa')) {
+      laborPercentage = 0.75;
+      materialsPercentage = 0.10;
+      taxPercentage = 0.15;
+      description = 'Personal care service: covers premium sanitization protocols, cosmetic kits, and certified specialist fees.';
+    }
+
+    const tax = Number((finalPrice * taxPercentage).toFixed(2));
+    const materials = Number((finalPrice * materialsPercentage).toFixed(2));
+    const labor = Number((finalPrice - tax - materials).toFixed(2));
+
+    return {
+      labor,
+      materials,
+      tax,
+      description,
+      laborLabel: `${Math.round(laborPercentage * 100)}% Specialist Fee`,
+      materialsLabel: `${Math.round(materialsPercentage * 100)}% Supplies & Equipment`,
+      taxLabel: `${Math.round(taxPercentage * 100)}% Taxes & Platform Fee`,
+    };
+  };
 
   const cancellationReasons = [
     "Technician is delayed / not responding",
@@ -311,6 +428,9 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
       setLocalStatus(currentBooking.status);
       setLocalPaymentStatus(currentBooking.paymentStatus || 'UNPAID');
       setLocalPaymentMethod(currentBooking.paymentMethod || '');
+      // Automatically show the MapView tab when the worker is en-route (ACCEPTED or IN_PROGRESS)
+      const isEnRoute = currentBooking.status === 'ACCEPTED' || currentBooking.status === 'IN_PROGRESS';
+      setShowMap(isEnRoute);
     }
   }, [currentBooking]);
 
@@ -487,13 +607,15 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
       onBack={onBack}
       onRetry={() => fetchBookingDetails(bookingId)}
     >
-      <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={onBack} style={styles.backButton}>
-          <Text style={styles.backText}>← Back</Text>
+          <Text style={[styles.backText, { color: colors.primary }]}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Booking Tracker</Text>
-        <View style={styles.headerPlaceholder} />
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Booking Tracker</Text>
+        <TouchableOpacity onPress={toggleTheme} style={[styles.headerToggleBtn, { backgroundColor: colors.border }]} testID="theme_toggle_detail">
+          <Text style={styles.headerToggleBtnText}>{isDark ? '☀️' : '🌙'}</Text>
+        </TouchableOpacity>
       </View>
 
       {!isOnline && (
@@ -542,7 +664,17 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
 
               <View style={styles.detailRow}>
                 <Text style={styles.detailLabel}>Estimated Price:</Text>
-                <Text style={styles.priceValue}>{formattedPrice}</Text>
+                <View style={{ alignItems: 'flex-end' }}>
+                  <Text style={styles.priceValue}>{formattedPrice}</Text>
+                  <TouchableOpacity
+                    onPress={() => setShowPriceBreakdownModal(true)}
+                    activeOpacity={0.7}
+                    style={styles.viewBreakdownLink}
+                    testID="view_price_breakdown_button"
+                  >
+                    <Text style={styles.viewBreakdownLinkText}>ⓘ View Breakdown</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </Card>
             
@@ -633,6 +765,18 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
                       workerJobsCount={186}
                       avatarUrl="https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200"
                       onMessagePressed={() => setIsChatOpen(true)}
+                      isFavorite={favoriteWorkerIds.includes(currentBooking.workerId)}
+                      onFavoriteToggle={() => {
+                        const isCurrentlyFav = favoriteWorkerIds.includes(currentBooking.workerId);
+                        toggleFavoriteWorker(currentBooking.workerId);
+                        showNotification({
+                          title: isCurrentlyFav ? 'Removed Partner' : 'Saved Partner',
+                          message: isCurrentlyFav
+                            ? 'Ayaan Sheikh was removed from your saved specialists.'
+                            : 'Ayaan Sheikh has been saved as a favorite specialist for future bookings!',
+                          type: 'success',
+                        });
+                      }}
                     />
 
                     <BookingCountdownTimer
@@ -895,6 +1039,27 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
 
             <BookingFAQSection />
 
+            {/* Repeat Service Option for Completed Bookings */}
+            {activeStatus === 'COMPLETED' && (
+              <Card style={styles.repeatServiceCard}>
+                <View style={styles.repeatHeaderRow}>
+                  <Text style={styles.repeatEmoji}>🔄</Text>
+                  <View style={styles.repeatHeaderTextWrapper}>
+                    <Text style={styles.repeatTitle}>Repeat This Service</Text>
+                    <Text style={styles.repeatSubtitle}>Schedule recurring appointments (e.g., weekly cleaning) for this completed job at the same price rate.</Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  style={styles.scheduleRepeatButton}
+                  onPress={() => setShowRepeatModal(true)}
+                  activeOpacity={0.8}
+                  testID="schedule_recurring_service_button"
+                >
+                  <Text style={styles.scheduleRepeatButtonText}>📅 Setup Recurring Schedule</Text>
+                </TouchableOpacity>
+              </Card>
+            )}
+
             {/* Quick Action to Complete Job and Rate */}
             {activeStatus === 'COMPLETED' ? (
               <TouchableOpacity
@@ -969,6 +1134,225 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
               }}
               workerName="Ayaan Sheikh"
             />
+
+            <Modal
+              visible={showPriceBreakdownModal}
+              transparent
+              animationType="fade"
+              statusBarTranslucent
+              onRequestClose={() => setShowPriceBreakdownModal(false)}
+            >
+              <TouchableWithoutFeedback onPress={() => setShowPriceBreakdownModal(false)}>
+                <View style={styles.modalOverlay}>
+                  <TouchableWithoutFeedback>
+                    <View style={styles.breakdownModalContainer}>
+                      <View style={styles.modalHeader}>
+                        <Text style={styles.modalTitle}>📊 Price Breakdown</Text>
+                        <Text style={styles.modalSubtitle}>Detailed breakdown for your {currentBooking?.serviceType.toLowerCase()} service.</Text>
+                      </View>
+
+                      {/* Service description contextual box */}
+                      <View style={styles.breakdownDescriptionBox}>
+                        <Text style={styles.breakdownDescriptionText}>
+                          {getPriceBreakdown().description}
+                        </Text>
+                      </View>
+
+                      {/* Breakdown table items */}
+                      <View style={styles.breakdownDetailsBox}>
+                        <View style={styles.breakdownLine}>
+                          <View>
+                            <Text style={styles.breakdownLineLabel}>Labor Costs</Text>
+                            <Text style={styles.breakdownLineSublabel}>{getPriceBreakdown().laborLabel}</Text>
+                          </View>
+                          <Text style={styles.breakdownLineValue}>PKR {getPriceBreakdown().labor.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                        </View>
+
+                        <View style={styles.breakdownLine}>
+                          <View>
+                            <Text style={styles.breakdownLineLabel}>Materials & Supplies</Text>
+                            <Text style={styles.breakdownLineSublabel}>{getPriceBreakdown().materialsLabel}</Text>
+                          </View>
+                          <Text style={styles.breakdownLineValue}>PKR {getPriceBreakdown().materials.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                        </View>
+
+                        <View style={styles.breakdownLine}>
+                          <View>
+                            <Text style={styles.breakdownLineLabel}>Taxes & Platform Fees</Text>
+                            <Text style={styles.breakdownLineSublabel}>{getPriceBreakdown().taxLabel}</Text>
+                          </View>
+                          <Text style={styles.breakdownLineValue}>PKR {getPriceBreakdown().tax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                        </View>
+
+                        <View style={[styles.breakdownLine, styles.breakdownLineTotal]}>
+                          <Text style={styles.breakdownTotalLabel}>Total Price</Text>
+                          <Text style={styles.breakdownTotalValue}>PKR {finalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                        </View>
+                      </View>
+
+                      {/* Informational advice */}
+                      <View style={styles.noticeBox}>
+                        <Text style={styles.noticeText}>
+                          💡 Specialist labor rates and supply estimates are regulated to ensure fair and competitive local pricing.
+                        </Text>
+                      </View>
+
+                      {/* Dismiss Action Button */}
+                      <TouchableOpacity
+                        style={styles.closeBreakdownButton}
+                        onPress={() => setShowPriceBreakdownModal(false)}
+                        activeOpacity={0.8}
+                        testID="close_price_breakdown_button"
+                      >
+                        <Text style={styles.closeBreakdownButtonText}>Dismiss</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </TouchableWithoutFeedback>
+                </View>
+              </TouchableWithoutFeedback>
+            </Modal>
+
+            <Modal
+              visible={showRepeatModal}
+              transparent
+              animationType="slide"
+              statusBarTranslucent
+              onRequestClose={() => setShowRepeatModal(false)}
+            >
+              <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                <View style={styles.modalOverlay}>
+                  <View style={styles.repeatModalContainer}>
+                    <View style={styles.modalHeader}>
+                      <Text style={styles.modalTitle}>🔄 Setup Recurring Schedule</Text>
+                      <Text style={styles.modalSubtitle}>Configure your repeat service preference.</Text>
+                    </View>
+
+                    <ScrollView style={styles.modalFormContent} showsVerticalScrollIndicator={false}>
+                      {/* Frequency selection */}
+                      <Text style={styles.fieldLabel}>FREQUENCY</Text>
+                      <View style={styles.optionsRow}>
+                        {(['weekly', 'biweekly', 'monthly'] as const).map((freq) => {
+                          const isActive = repeatFrequency === freq;
+                          return (
+                            <TouchableOpacity
+                              key={freq}
+                              style={[styles.freqChip, isActive && styles.freqChipActive]}
+                              onPress={() => setRepeatFrequency(freq)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.freqChipText, isActive && styles.freqChipTextActive]}>
+                                {freq === 'weekly' ? 'Weekly' : freq === 'biweekly' ? 'Bi-weekly' : 'Monthly'}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      {/* Number of sessions */}
+                      <Text style={styles.fieldLabel}>NUMBER OF RECURRING SESSIONS</Text>
+                      <View style={styles.optionsRow}>
+                        {([4, 8, 12] as const).map((count) => {
+                          const isActive = repeatCount === count;
+                          return (
+                            <TouchableOpacity
+                              key={count}
+                              style={[styles.freqChip, isActive && styles.freqChipActive]}
+                              onPress={() => setRepeatCount(count)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.freqChipText, isActive && styles.freqChipTextActive]}>
+                                {count} Sessions
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      {/* Day of the week */}
+                      <Text style={styles.fieldLabel}>PREFERRED DAY OF WEEK</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalScrollChips}>
+                        {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((day) => {
+                          const isActive = repeatDay === day;
+                          return (
+                            <TouchableOpacity
+                              key={day}
+                              style={[styles.dayChip, isActive && styles.dayChipActive]}
+                              onPress={() => setRepeatDay(day)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.dayChipText, isActive && styles.dayChipTextActive]}>
+                                {day}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+
+                      {/* Preferred Time */}
+                      <Text style={styles.fieldLabel}>PREFERRED TIME OF DAY</Text>
+                      <View style={styles.optionsRow}>
+                        {['09:00 AM', '12:00 PM', '03:00 PM', '06:00 PM'].map((time) => {
+                          const isActive = repeatTime === time;
+                          return (
+                            <TouchableOpacity
+                              key={time}
+                              style={[styles.freqChip, isActive && styles.freqChipActive, { flex: 1, marginHorizontal: 4 }]}
+                              onPress={() => setRepeatTime(time)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.freqChipText, isActive && styles.freqChipTextActive, { fontSize: 12 }]}>
+                                {time}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+
+                      {/* Pricing Summary */}
+                      <View style={styles.repeatSummaryBox}>
+                        <Text style={styles.repeatSummaryTitle}>💵 Recurrence Pricing Summary</Text>
+                        <View style={styles.summaryLine}>
+                          <Text style={styles.summaryLabel}>Base Rate (per session):</Text>
+                          <Text style={styles.summaryValue}>PKR {currentBooking?.price.toLocaleString()}</Text>
+                        </View>
+                        <View style={styles.summaryLine}>
+                          <Text style={styles.summaryLabel}>Total Sessions:</Text>
+                          <Text style={styles.summaryValue}>{repeatCount}x {repeatFrequency}</Text>
+                        </View>
+                        <View style={[styles.summaryLine, styles.summaryLineTotal]}>
+                          <Text style={styles.summaryTotalLabel}>Estimated Contract Total:</Text>
+                          <Text style={styles.summaryTotalValue}>PKR {((currentBooking?.price || 0) * repeatCount).toLocaleString()}</Text>
+                        </View>
+                      </View>
+                    </ScrollView>
+
+                    {/* Action buttons */}
+                    <View style={styles.modalActionsRow}>
+                      <TouchableOpacity
+                        style={styles.cancelModalButton}
+                        onPress={() => setShowRepeatModal(false)}
+                        disabled={isSchedulingRepeat}
+                      >
+                        <Text style={styles.cancelModalButtonText}>Cancel</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.confirmRepeatButton, isSchedulingRepeat && styles.confirmRepeatButtonDisabled]}
+                        onPress={handleScheduleRecurring}
+                        disabled={isSchedulingRepeat}
+                        testID="confirm_recurring_schedule_button"
+                      >
+                        {isSchedulingRepeat ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.confirmRepeatButtonText}>Schedule Now</Text>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </Modal>
 
             <Modal
               visible={showCancelModal}
@@ -1191,6 +1575,18 @@ const styles = StyleSheet.create({
   },
   headerPlaceholder: {
     width: 60,
+  },
+  headerToggleBtn: {
+    padding: 6,
+    borderRadius: 10,
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  headerToggleBtnText: {
+    fontSize: 16,
   },
   scrollContent: {
     padding: 16,
@@ -1944,5 +2340,339 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
+  },
+  repeatServiceCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+    marginTop: 20,
+    marginBottom: 8,
+  },
+  repeatHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  repeatEmoji: {
+    fontSize: 28,
+    marginRight: 14,
+  },
+  repeatHeaderTextWrapper: {
+    flex: 1,
+  },
+  repeatTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 4,
+  },
+  repeatSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    lineHeight: 18,
+  },
+  scheduleRepeatButton: {
+    backgroundColor: '#4F46E5',
+    borderRadius: 12,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  scheduleRepeatButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  repeatModalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '85%',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  modalFormContent: {
+    marginVertical: 12,
+  },
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#64748B',
+    letterSpacing: 1,
+    marginBottom: 8,
+    marginTop: 14,
+  },
+  optionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  freqChip: {
+    flex: 1,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 4,
+  },
+  freqChipActive: {
+    borderColor: '#4F46E5',
+    backgroundColor: '#EEF2FF',
+  },
+  freqChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  freqChipTextActive: {
+    color: '#4F46E5',
+    fontWeight: '700',
+  },
+  horizontalScrollChips: {
+    paddingVertical: 4,
+  },
+  dayChip: {
+    paddingHorizontal: 16,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#F8FAFC',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  dayChipActive: {
+    borderColor: '#4F46E5',
+    backgroundColor: '#EEF2FF',
+  },
+  dayChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  dayChipTextActive: {
+    color: '#4F46E5',
+    fontWeight: '700',
+  },
+  repeatSummaryBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  repeatSummaryTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 10,
+  },
+  summaryLine: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  summaryLabel: {
+    fontSize: 12.5,
+    color: '#64748B',
+  },
+  summaryValue: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  summaryLineTotal: {
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    paddingTop: 8,
+    marginTop: 8,
+  },
+  summaryTotalLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  summaryTotalValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#4F46E5',
+  },
+  modalActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
+  cancelModalButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  cancelModalButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  confirmRepeatButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#4F46E5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  confirmRepeatButtonDisabled: {
+    backgroundColor: '#A5B4FC',
+  },
+  confirmRepeatButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  viewBreakdownLink: {
+    marginTop: 4,
+    paddingVertical: 2,
+  },
+  viewBreakdownLinkText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#4F46E5',
+    textDecorationLine: 'underline',
+  },
+  breakdownModalContainer: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 380,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  breakdownDescriptionBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 12,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  breakdownDescriptionText: {
+    fontSize: 12.5,
+    color: '#64748B',
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  breakdownDetailsBox: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginBottom: 16,
+  },
+  breakdownLine: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
+  breakdownLineLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1E293B',
+  },
+  breakdownLineSublabel: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  breakdownLineValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  breakdownLineTotal: {
+    borderBottomWidth: 0,
+    borderTopWidth: 1.5,
+    borderTopColor: '#E2E8F0',
+    marginTop: 6,
+    paddingTop: 12,
+  },
+  breakdownTotalLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  breakdownTotalValue: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#4F46E5',
+  },
+  noticeBox: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  noticeText: {
+    fontSize: 11,
+    color: '#B45309',
+    lineHeight: 16,
+  },
+  closeBreakdownButton: {
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#0F172A',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeBreakdownButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
 });

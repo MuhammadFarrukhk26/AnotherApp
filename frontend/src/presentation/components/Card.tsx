@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle } from 'react-native';
+import { useTheme } from '../state/ThemeContext';
 
 interface CardProps {
   children: React.ReactNode;
@@ -7,7 +8,8 @@ interface CardProps {
 }
 
 export const Card: React.FC<CardProps> = ({ children, style }) => {
-  return <View style={[styles.card, style]}>{children}</View>;
+  const { colors } = useTheme();
+  return <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, style]}>{children}</View>;
 };
 
 const styles = StyleSheet.create({
