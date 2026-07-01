@@ -45,6 +45,15 @@ import com.example.presentation.theme.OrangePrimary
 import com.example.presentation.viewmodel.HazirViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -721,7 +730,7 @@ fun BookingsHistoryTabContent(
     bookings: List<Booking>,
     onTrackBooking: (Int) -> Unit
 ) {
-    var selectedTab by remember { mutableStateOf(0) } // 0: Pending & Active, 1: Past Bookings
+    var selectedTab by remember { mutableStateOf(0) } // 0: Active, 1: Past, 2: Insights
 
     val pendingBookings = bookings.filter { it.status != "COMPLETED" && it.status != "CANCELLED" }
     val pastBookings = bookings.filter { it.status == "COMPLETED" || it.status == "CANCELLED" }
@@ -741,7 +750,7 @@ fun BookingsHistoryTabContent(
             color = NavySecondary
         )
 
-        // Custom Segmented Pill Tab Switcher
+        // Custom Segmented Pill Tab Switcher (3-way)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -750,7 +759,11 @@ fun BookingsHistoryTabContent(
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            val tabs = listOf("Pending & Active (${pendingBookings.size})", "Past Bookings (${pastBookings.size})")
+            val tabs = listOf(
+                "Active (${pendingBookings.size})",
+                "Past (${pastBookings.size})",
+                "Insights 📊"
+            )
             tabs.forEachIndexed { index, title ->
                 val isSelected = selectedTab == index
                 val background = if (isSelected) OrangePrimary else Color.Transparent
@@ -769,14 +782,16 @@ fun BookingsHistoryTabContent(
                     Text(
                         text = title,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
+                        fontSize = 11.sp,
                         color = textColor
                     )
                 }
             }
         }
 
-        if (currentBookingsList.isEmpty()) {
+        if (selectedTab == 2) {
+            BookingInsightsDashboard(bookings = bookings)
+        } else if (currentBookingsList.isEmpty()) {
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -1159,6 +1174,10 @@ fun BookingFormDialog(
     var date by remember { mutableStateOf("Today, June 28") }
     var time by remember { mutableStateOf("As soon as possible") }
 
+    // Dynamic Price Estimation state
+    var estimatedDuration by remember { mutableStateOf(2.0) } // Default 2 hours
+    val dynamicPrice = category.basePrice * estimatedDuration
+
     // Payment selection states
     var paymentMethod by remember { mutableStateOf("CASH") } // "CASH", "CARD", "WALLET"
     var walletType by remember { mutableStateOf("HAZIR") } // "HAZIR", "EASYPAISA", "JAZZCASH"
@@ -1181,7 +1200,7 @@ fun BookingFormDialog(
         "CARD" -> cardNumber.length >= 16 && cardExpiry.length >= 4 && cardCvv.length >= 3 && cardName.isNotBlank()
         "WALLET" -> {
             if (walletType == "HAZIR") {
-                userBalance >= category.basePrice
+                userBalance >= dynamicPrice
             } else {
                 isOtpVerified
             }
@@ -1200,7 +1219,7 @@ fun BookingFormDialog(
                         "WALLET" -> if (walletType == "HAZIR") "WALLET" else walletType
                         else -> "CASH"
                     }
-                    onConfirmBooking(address, description, category.basePrice, date, time, finalPaymentMethod)
+                    onConfirmBooking(address, description, dynamicPrice, date, time, finalPaymentMethod)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
                 enabled = isFormValid
@@ -1281,27 +1300,158 @@ fun BookingFormDialog(
                     )
                 }
 
+                // ==========================================
+                // AUTOMATED PRICE ESTIMATOR TOOL (COMPOSE)
+                // ==========================================
+                Text("⏱️ Automated Price Estimator", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = NavySecondary)
+                
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F9FA)),
+                    border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Adjust estimated duration to preview your total budget range:",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                        
+                        // Increment/Decrement Row
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { if (estimatedDuration > 0.5) estimatedDuration -= 0.5 },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(Color.LightGray.copy(alpha = 0.3f), CircleShape)
+                            ) {
+                                Text("−", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                            }
+                            
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = "${if (estimatedDuration % 1.0 == 0.0) estimatedDuration.toInt().toString() else estimatedDuration} ${if (estimatedDuration == 1.0) "Hour" else "Hours"}",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NavySecondary
+                                )
+                                Text("Estimated Time", fontSize = 10.sp, color = Color.Gray)
+                            }
+                            
+                            IconButton(
+                                onClick = { if (estimatedDuration < 12.0) estimatedDuration += 0.5 },
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(Color.LightGray.copy(alpha = 0.3f), CircleShape)
+                            ) {
+                                Text("+", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                            }
+                        }
+                        
+                        // Suggestion presets row
+                        Text("Suggested Durations:", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val presets = listOf(
+                                Triple("Quick Fix", 1.0, "⚡"),
+                                Triple("Standard", 2.0, "🔧"),
+                                Triple("Complex", 3.5, "🛠️")
+                            )
+                            presets.forEach { (label, hours, emoji) ->
+                                val isSelected = estimatedDuration == hours
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) OrangePrimary else Color.White)
+                                        .border(1.dp, if (isSelected) OrangePrimary else Color.LightGray.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                        .clickable { estimatedDuration = hours }
+                                        .padding(vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "$emoji $label",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color.White else Color.DarkGray
+                                    )
+                                }
+                            }
+                        }
+                        
+                        // Cost Range Banner
+                        val minCost = (category.basePrice * estimatedDuration).toInt()
+                        val maxCost = (category.basePrice * (estimatedDuration + 1.0)).toInt()
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFE0F2F1)),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(10.dp).fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text("PROJECTED COST RANGE", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF00796B))
+                                Text("PKR $minCost - PKR $maxCost", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF004D40))
+                                Text("*Low estimate: hours only. High estimate: with buffer.", fontSize = 9.sp, color = Color(0xFF00796B))
+                            }
+                        }
+                    }
+                }
+
                 // Estimated Price Invoice
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F8E9))
                 ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Base Estimated Fare", fontSize = 11.sp, color = Color.Gray)
-                            Text("PKR ${category.basePrice}", fontSize = 18.sp, fontWeight = FontWeight.Black, color = Color(0xFF33691E))
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFFDCEDC8))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Transparent", fontSize = 10.sp, color = Color(0xFF33691E), fontWeight = FontWeight.Bold)
+                            Column {
+                                Text("Total Estimated Fare", fontSize = 11.sp, color = Color.Gray)
+                                Text("PKR ${dynamicPrice.toInt()}", fontSize = 18.sp, fontWeight = FontWeight.Black, color = Color(0xFF33691E))
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Color(0xFFDCEDC8))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("Transparent", fontSize = 10.sp, color = Color(0xFF33691E), fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Spacer(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(0.5.dp)
+                                .background(Color.LightGray.copy(alpha = 0.5f))
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Rate per hour:", fontSize = 10.sp, color = Color.Gray)
+                            Text("PKR ${category.basePrice.toInt()}/hr", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text("Selected Duration:", fontSize = 10.sp, color = Color.Gray)
+                            Text("${if (estimatedDuration % 1.0 == 0.0) estimatedDuration.toInt().toString() else estimatedDuration} hrs", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.DarkGray)
                         }
                     }
                 }
@@ -1551,7 +1701,7 @@ fun BookingFormDialog(
                                         Text(
                                             "Current Balance: PKR $userBalance", 
                                             fontSize = 11.sp, 
-                                            color = if (userBalance >= category.basePrice) Color(0xFF33691E) else Color.Red,
+                                            color = if (userBalance >= dynamicPrice) Color(0xFF33691E) else Color.Red,
                                             fontWeight = FontWeight.SemiBold
                                         )
                                     }
@@ -1617,7 +1767,7 @@ fun BookingFormDialog(
                             }
 
                             if (walletType == "HAZIR") {
-                                if (userBalance < category.basePrice) {
+                                if (userBalance < dynamicPrice) {
                                     Text(
                                         "⚠️ Insufficient Wallet Balance! Please top-up from your Wallet tab or select a different payment option.",
                                         fontSize = 11.sp,
@@ -1627,7 +1777,7 @@ fun BookingFormDialog(
                                     )
                                 } else {
                                     Text(
-                                        "✓ Funds secured! PKR ${category.basePrice} will be released to the worker upon job completion.",
+                                        "✓ Funds secured! PKR ${dynamicPrice.toInt()} will be released to the worker upon job completion.",
                                         fontSize = 11.sp,
                                         color = Color(0xFF33691E),
                                         fontWeight = FontWeight.SemiBold,
@@ -1737,4 +1887,632 @@ fun getCategoryIcon(iconName: String): ImageVector {
         "local_shipping" -> Icons.Default.LocalShipping
         else -> Icons.Default.Handyman
     }
+}
+
+// ==========================================
+// BOOKING HISTORY INSIGHTS DASHBOARD
+// ==========================================
+enum class ChartMode { SPENDING, COUNT }
+
+data class MonthData(
+    val label: String,
+    val spending: Double,
+    val count: Int
+)
+
+@Composable
+fun BookingInsightsDashboard(bookings: List<Booking>) {
+    val completedBookings = remember(bookings) {
+        bookings.filter { it.status == "COMPLETED" }
+    }
+    
+    // Parse the last 6 months' data
+    val insightsData = remember(completedBookings) {
+        getPastSixMonthsData(completedBookings)
+    }
+    
+    val totalSpending = remember(insightsData) {
+        insightsData.sumOf { it.spending }
+    }
+    
+    val totalServices = remember(insightsData) {
+        insightsData.sumOf { it.count }
+    }
+    
+    val averageSpend = remember(totalSpending, totalServices) {
+        if (totalServices > 0) totalSpending / totalServices else 0.0
+    }
+    
+    // Top requested category
+    val topCategoryInfo = remember(completedBookings) {
+        if (completedBookings.isEmpty()) null
+        else {
+            val groups = completedBookings.groupBy { it.categoryId }
+            val highest = groups.maxByOrNull { it.value.size }
+            if (highest != null) {
+                val categoryName = highest.value.first().categoryName
+                val categoryId = highest.key
+                Pair(categoryName, categoryId)
+            } else null
+        }
+    }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // 1. STATS OVERVIEW CARDS
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = OrangePrimary.copy(alpha = 0.06f)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.15f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountBalanceWallet,
+                        contentDescription = "Spending",
+                        tint = OrangePrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text("Total Spent", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Text("PKR ${totalSpending.toInt()}", fontSize = 18.sp, fontWeight = FontWeight.Black, color = NavySecondary)
+                    Text("Last 6 Months", fontSize = 9.sp, color = Color.Gray)
+                }
+            }
+            
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = NavySecondary.copy(alpha = 0.04f)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, NavySecondary.copy(alpha = 0.1f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = "Jobs",
+                        tint = NavySecondary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                    Text("Completed", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Text("$totalServices Services", fontSize = 18.sp, fontWeight = FontWeight.Black, color = NavySecondary)
+                    Text("Last 6 Months", fontSize = 9.sp, color = Color.Gray)
+                }
+            }
+        }
+        
+        // 2. DETAILED STATS ROW
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Average Order Value", fontSize = 11.sp, color = Color.Gray)
+                    Text("PKR ${averageSpend.toInt()} / Job", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                }
+                
+                Spacer(modifier = Modifier.width(1.dp).height(30.dp).background(Color.LightGray.copy(alpha = 0.5f)))
+                
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.End) {
+                    Text("Top Service Category", fontSize = 11.sp, color = Color.Gray)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        topCategoryInfo?.let { (catName, catId) ->
+                            Icon(
+                                imageVector = getCategoryIconByCategoryId(catId),
+                                contentDescription = catName,
+                                tint = OrangePrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(catName, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                        } ?: Text("None yet", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                    }
+                }
+            }
+        }
+        
+        // 3. THE LINE CHART CARD
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                var chartMode by remember { mutableStateOf(ChartMode.SPENDING) }
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ShowChart,
+                                contentDescription = null,
+                                tint = OrangePrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "Booking History Insights",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = NavySecondary
+                            )
+                        }
+                        Text(
+                            text = "Tap points below to inspect details",
+                            fontSize = 11.sp,
+                            color = Color.Gray
+                        )
+                    }
+                }
+                
+                // Mode Switcher Chips
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color.LightGray.copy(alpha = 0.2f))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    val modes = listOf(ChartMode.SPENDING to "Spending (PKR)", ChartMode.COUNT to "Service Count")
+                    modes.forEach { (modeOption, label) ->
+                        val isSelected = chartMode == modeOption
+                        val bg = if (isSelected) {
+                            if (modeOption == ChartMode.SPENDING) OrangePrimary else NavySecondary
+                        } else Color.Transparent
+                        val textCol = if (isSelected) Color.White else Color.DarkGray
+                        
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(bg)
+                                .clickable { chartMode = modeOption }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = textCol
+                            )
+                        }
+                    }
+                }
+                
+                // Draw Chart
+                if (insightsData.isNotEmpty()) {
+                    var selectedIndex by remember { mutableStateOf<Int?>(null) }
+                    
+                    // Display details of clicked point
+                    selectedIndex?.let { idx ->
+                        val item = insightsData.getOrNull(idx)
+                        if (item != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(
+                                        if (chartMode == ChartMode.SPENDING) OrangePrimary.copy(alpha = 0.08f)
+                                        else NavySecondary.copy(alpha = 0.08f),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(8.dp),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "📊 ${item.label}: ",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NavySecondary
+                                )
+                                Text(
+                                    text = if (chartMode == ChartMode.SPENDING) "PKR ${item.spending.toInt()}" else "${item.count} ${if (item.count == 1) "Service" else "Services"}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (chartMode == ChartMode.SPENDING) OrangePrimary else NavySecondary
+                                )
+                            }
+                        }
+                    }
+                    
+                    val points = insightsData.map { if (chartMode == ChartMode.SPENDING) it.spending.toFloat() else it.count.toFloat() }
+                    val labels = insightsData.map { it.label }
+                    
+                    val maxVal = points.maxOrNull() ?: 0f
+                    val maxGridVal = if (chartMode == ChartMode.SPENDING) {
+                        val rounded = ((maxVal + 1999) / 2000).toInt() * 2000
+                        if (rounded == 0) 2000f else rounded.toFloat()
+                    } else {
+                        val rounded = (maxVal + 1).toInt()
+                        if (rounded == 0) 5f else rounded.toFloat()
+                    }
+                    
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                    ) {
+                        Canvas(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(points, chartMode) {
+                                    detectTapGestures { offset ->
+                                        if (points.isNotEmpty()) {
+                                            val stepX = (size.width - 60.dp.toPx() - 15.dp.toPx()) / (points.size - 1)
+                                            val paddingLeft = 60.dp.toPx()
+                                            val tappedIndex = ((offset.x - paddingLeft + stepX / 2) / stepX).toInt().coerceIn(0, points.size - 1)
+                                            selectedIndex = tappedIndex
+                                        }
+                                    }
+                                }
+                        ) {
+                            val width = size.width
+                            val height = size.height
+                            
+                            val paddingLeft = 60.dp.toPx()
+                            val paddingRight = 15.dp.toPx()
+                            val paddingTop = 15.dp.toPx()
+                            val paddingBottom = 25.dp.toPx()
+                            
+                            val chartWidth = width - paddingLeft - paddingRight
+                            val chartHeight = height - paddingTop - paddingBottom
+                            
+                            // Draw Grid Lines & Y Axis Labels
+                            val gridLines = 4
+                            for (i in 0..gridLines) {
+                                val y = paddingTop + chartHeight * (1f - i.toFloat() / gridLines)
+                                val gridVal = maxGridVal * i / gridLines
+                                
+                                drawLine(
+                                    color = Color.LightGray.copy(alpha = 0.4f),
+                                    start = Offset(paddingLeft, y),
+                                    end = Offset(width - paddingRight, y),
+                                    strokeWidth = 1.dp.toPx()
+                                )
+                                
+                                val labelText = if (chartMode == ChartMode.SPENDING) {
+                                    if (gridVal >= 1000) "PKR ${(gridVal / 1000).toInt()}k" else "PKR ${gridVal.toInt()}"
+                                } else {
+                                    "${gridVal.toInt()}"
+                                }
+                                
+                                drawContext.canvas.nativeCanvas.drawText(
+                                    labelText,
+                                    paddingLeft - 8.dp.toPx(),
+                                    y + 4.dp.toPx(),
+                                    android.graphics.Paint().apply {
+                                        color = android.graphics.Color.GRAY
+                                        textSize = 9.dp.toPx()
+                                        textAlign = android.graphics.Paint.Align.RIGHT
+                                        typeface = android.graphics.Typeface.DEFAULT_BOLD
+                                    }
+                                )
+                            }
+                            
+                            // Coordinates
+                            if (points.isNotEmpty()) {
+                                val stepX = if (points.size > 1) chartWidth / (points.size - 1) else chartWidth
+                                val coords = points.mapIndexed { idx, value ->
+                                    val x = paddingLeft + idx * stepX
+                                    val y = paddingTop + chartHeight * (1f - value / maxGridVal)
+                                    Offset(x, y)
+                                }
+                                
+                                // Draw Area fill
+                                val areaPath = androidx.compose.ui.graphics.Path().apply {
+                                    moveTo(coords.first().x, paddingTop + chartHeight)
+                                    coords.forEach { lineTo(it.x, it.y) }
+                                    lineTo(coords.last().x, paddingTop + chartHeight)
+                                    close()
+                                }
+                                drawPath(
+                                    path = areaPath,
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(
+                                            if (chartMode == ChartMode.SPENDING) OrangePrimary.copy(alpha = 0.35f) else NavySecondary.copy(alpha = 0.35f),
+                                            if (chartMode == ChartMode.SPENDING) OrangePrimary.copy(alpha = 0.0f) else NavySecondary.copy(alpha = 0.0f)
+                                        ),
+                                        startY = paddingTop,
+                                        endY = paddingTop + chartHeight
+                                    )
+                                )
+                                
+                                // Draw Line
+                                if (coords.size > 1) {
+                                    val linePath = androidx.compose.ui.graphics.Path().apply {
+                                        moveTo(coords.first().x, coords.first().y)
+                                        for (i in 1 until coords.size) {
+                                            lineTo(coords[i].x, coords[i].y)
+                                        }
+                                    }
+                                    drawPath(
+                                        path = linePath,
+                                        color = if (chartMode == ChartMode.SPENDING) OrangePrimary else NavySecondary,
+                                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                            width = 3.dp.toPx(),
+                                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                            join = androidx.compose.ui.graphics.StrokeJoin.Round
+                                        )
+                                    )
+                                }
+                                
+                                // Draw labels & points
+                                coords.forEachIndexed { idx, coord ->
+                                    val label = labels[idx]
+                                    
+                                    // X Label
+                                    drawContext.canvas.nativeCanvas.drawText(
+                                        label,
+                                        coord.x,
+                                        height - 4.dp.toPx(),
+                                        android.graphics.Paint().apply {
+                                            color = android.graphics.Color.GRAY
+                                            textSize = 9.dp.toPx()
+                                            textAlign = android.graphics.Paint.Align.CENTER
+                                        }
+                                    )
+                                    
+                                    // Selection highlight
+                                    val isSelected = selectedIndex == idx
+                                    val mainColor = if (chartMode == ChartMode.SPENDING) OrangePrimary else NavySecondary
+                                    
+                                    if (isSelected) {
+                                        drawLine(
+                                            color = mainColor.copy(alpha = 0.4f),
+                                            start = Offset(coord.x, paddingTop),
+                                            end = Offset(coord.x, paddingTop + chartHeight),
+                                            strokeWidth = 1.dp.toPx(),
+                                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+                                        )
+                                        drawCircle(
+                                            color = mainColor.copy(alpha = 0.2f),
+                                            radius = 12.dp.toPx(),
+                                            center = coord
+                                        )
+                                    }
+                                    
+                                    // Point dot
+                                    drawCircle(
+                                        color = mainColor,
+                                        radius = 5.dp.toPx(),
+                                        center = coord
+                                    )
+                                    drawCircle(
+                                        color = Color.White,
+                                        radius = 2.5.dp.toPx(),
+                                        center = coord
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No sufficient completed booking history.", color = Color.Gray, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+        
+        // 4. CATEGORY BREAKDOWN SECTION
+        Text(
+            text = "Service Usage Breakdown",
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+            color = NavySecondary
+        )
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (completedBookings.isEmpty()) {
+                    Text("No bookings completed yet to compute breakdown.", color = Color.Gray, fontSize = 12.sp)
+                } else {
+                    val categoryGroups = completedBookings.groupBy { it.categoryId }
+                    val totalJobs = completedBookings.size.toFloat()
+                    
+                    categoryGroups.entries.sortedByDescending { it.value.size }.forEach { entry ->
+                        val catId = entry.key
+                        val list = entry.value
+                        val catName = list.first().categoryName
+                        val percentage = (list.size / totalJobs) * 100f
+                        
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = getCategoryIconByCategoryId(catId),
+                                        contentDescription = catName,
+                                        tint = OrangePrimary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(catName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = NavySecondary)
+                                }
+                                Text("${list.size} ${if (list.size == 1) "job" else "jobs"} (${percentage.toInt()}%)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                            }
+                            
+                            // Horizontal Progress bar
+                            LinearProgressIndicator(
+                                progress = { percentage / 100f },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = OrangePrimary,
+                                trackColor = Color.LightGray.copy(alpha = 0.2f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 5. MONTHLY LIST TABLE
+        Text(
+            text = "Monthly Detail Logs",
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+            color = NavySecondary
+        )
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Table Headers
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("MONTH", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray, modifier = Modifier.weight(1.5f))
+                    Text("JOBS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+                    Text("TOTAL SPEND", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Gray, modifier = Modifier.weight(1.5f), textAlign = TextAlign.End)
+                }
+                
+                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.3f))
+                
+                insightsData.reversed().forEach { dataItem ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${dataItem.label}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NavySecondary,
+                            modifier = Modifier.weight(1.5f)
+                        )
+                        
+                        Box(
+                            modifier = Modifier
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(NavySecondary.copy(alpha = 0.08f))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "${dataItem.count}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = NavySecondary
+                                )
+                            }
+                        }
+                        
+                        Text(
+                            text = "PKR ${dataItem.spending.toInt()}",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = OrangePrimary,
+                            modifier = Modifier.weight(1.5f),
+                            textAlign = TextAlign.End
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Helper to get past six months data dynamically
+fun getPastSixMonthsData(completedBookings: List<Booking>): List<MonthData> {
+    val monthsData = mutableListOf<MonthData>()
+    
+    val monthCalendars = (0..5).map { offset ->
+        val c = Calendar.getInstance()
+        c.add(Calendar.MONTH, -offset)
+        c
+    }.reversed() // chronological order
+    
+    val monthYearFormat = SimpleDateFormat("yyyy-MM", Locale.US)
+    val monthLabelFormat = SimpleDateFormat("MMM", Locale.US)
+    
+    for (c in monthCalendars) {
+        val key = monthYearFormat.format(c.time)
+        val label = monthLabelFormat.format(c.time)
+        
+        val bookingsInMonth = completedBookings.filter { booking ->
+            val bCal = Calendar.getInstance()
+            bCal.timeInMillis = booking.createdAt
+            monthYearFormat.format(bCal.time) == key
+        }
+        
+        val totalSpending = bookingsInMonth.sumOf { it.estimatedPrice }
+        val count = bookingsInMonth.size
+        
+        monthsData.add(MonthData(label = label, spending = totalSpending, count = count))
+    }
+    
+    return monthsData
 }

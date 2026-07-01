@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import axios from 'axios';
+import { API_BASE_URL } from '../../config';
 
 interface Message {
   id: string;
@@ -75,7 +76,7 @@ export const BookingChatDrawer: React.FC<BookingChatDrawerProps> = ({
   const fetchMessages = async () => {
     try {
       const response = await axios.get<{ success: boolean; data: any[] }>(
-        `https://api.hazir-app.com/api/v1/bookings/${bookingId}/messages`
+        `${API_BASE_URL}/bookings/${bookingId}/messages`
       );
       if (response.data && response.data.success) {
         const remoteMsgs = response.data.data.map((m: any) => ({
@@ -170,7 +171,7 @@ export const BookingChatDrawer: React.FC<BookingChatDrawerProps> = ({
     try {
       // Post to Node/Express/MongoDB backend
       await axios.post(
-        `https://api.hazir-app.com/api/v1/bookings/${bookingId}/messages`,
+        `${API_BASE_URL}/bookings/${bookingId}/messages`,
         {
           text: trimmedText,
           sender: 'user',

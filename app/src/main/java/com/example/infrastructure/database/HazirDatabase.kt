@@ -399,6 +399,199 @@ abstract class HazirDatabase : RoomDatabase() {
                     description = "Welcome Bonus Deposit"
                 )
             )
+
+            // Seed historical completed bookings over the last 6 months for customer_1
+            val currentTime = System.currentTimeMillis()
+            val oneDayMillis = 24 * 60 * 60 * 1000L
+
+            val historicalBookings = listOf(
+                // 1 month ago (June 2026)
+                BookingEntity(
+                    categoryId = "ac_technician",
+                    categoryName = "AC Technician",
+                    customerId = "customer_1",
+                    customerName = "Haris Mahmood",
+                    customerPhone = "0300-1234567",
+                    workerId = "worker_electrician",
+                    workerName = "Sajid Qureshi",
+                    workerPhone = "0312-5551111",
+                    date = "June 12, 2026",
+                    time = "10:30 AM",
+                    address = "House 12-B, Sector F-6, Islamabad",
+                    latitude = 33.6844,
+                    longitude = 73.0479,
+                    description = "Annual AC general cleaning and gas charging before summer peak.",
+                    estimatedPrice = 2400.0,
+                    status = "COMPLETED",
+                    rating = 5,
+                    review = "Excellent service! Prompt and professional.",
+                    paymentMethod = "WALLET",
+                    createdAt = currentTime - (15 * oneDayMillis) // 15 days ago
+                ),
+                BookingEntity(
+                    categoryId = "electrician",
+                    categoryName = "Electrician",
+                    customerId = "customer_1",
+                    customerName = "Haris Mahmood",
+                    customerPhone = "0300-1234567",
+                    workerId = "worker_electrician",
+                    workerName = "Sajid Qureshi",
+                    workerPhone = "0312-5551111",
+                    date = "June 24, 2026",
+                    time = "02:00 PM",
+                    address = "House 12-B, Sector F-6, Islamabad",
+                    latitude = 33.6844,
+                    longitude = 73.0479,
+                    description = "Short circuit in lounge wall sockets fixed.",
+                    estimatedPrice = 900.0,
+                    status = "COMPLETED",
+                    rating = 4,
+                    review = "Quick and reliable work.",
+                    paymentMethod = "CASH",
+                    createdAt = currentTime - (3 * oneDayMillis) // 3 days ago
+                ),
+                // 2 months ago (May 2026)
+                BookingEntity(
+                    categoryId = "cleaner",
+                    categoryName = "Home Cleaner",
+                    customerId = "customer_1",
+                    customerName = "Haris Mahmood",
+                    customerPhone = "0300-1234567",
+                    workerId = "worker_cleaner",
+                    workerName = "Zainab Bibi",
+                    workerPhone = "0345-3334444",
+                    date = "May 15, 2026",
+                    time = "09:00 AM",
+                    address = "House 12-B, Sector F-6, Islamabad",
+                    latitude = 33.6844,
+                    longitude = 73.0479,
+                    description = "Deep kitchen cleaning and sanitization session.",
+                    estimatedPrice = 3600.0,
+                    status = "COMPLETED",
+                    rating = 5,
+                    review = "Sparkling clean kitchen! Highly recommended.",
+                    paymentMethod = "WALLET",
+                    createdAt = currentTime - (45 * oneDayMillis)
+                ),
+                // 3 months ago (April 2026)
+                BookingEntity(
+                    categoryId = "plumber",
+                    categoryName = "Plumber",
+                    customerId = "customer_1",
+                    customerName = "Haris Mahmood",
+                    customerPhone = "0300-1234567",
+                    workerId = "worker_plumber",
+                    workerName = "Amir Shah",
+                    workerPhone = "0333-8882222",
+                    date = "April 08, 2026",
+                    time = "04:30 PM",
+                    address = "House 12-B, Sector F-6, Islamabad",
+                    latitude = 33.6844,
+                    longitude = 73.0479,
+                    description = "Kitchen sink drainage pipe leakage repair.",
+                    estimatedPrice = 1200.0,
+                    status = "COMPLETED",
+                    rating = 4,
+                    review = "Fixed the leakage perfectly.",
+                    paymentMethod = "CASH",
+                    createdAt = currentTime - (75 * oneDayMillis)
+                ),
+                BookingEntity(
+                    categoryId = "carpenter",
+                    categoryName = "Carpenter",
+                    customerId = "customer_1",
+                    customerName = "Haris Mahmood",
+                    customerPhone = "0300-1234567",
+                    workerId = "worker_plumber",
+                    workerName = "Amir Shah",
+                    workerPhone = "0333-8882222",
+                    date = "April 20, 2026",
+                    time = "11:00 AM",
+                    address = "House 12-B, Sector F-6, Islamabad",
+                    latitude = 33.6844,
+                    longitude = 73.0479,
+                    description = "Dining chair wood gluing and main door lock adjustment.",
+                    estimatedPrice = 1800.0,
+                    status = "COMPLETED",
+                    rating = 5,
+                    review = "Very skilled craftsman.",
+                    paymentMethod = "WALLET",
+                    createdAt = currentTime - (88 * oneDayMillis)
+                ),
+                // 4 months ago (March 2026)
+                BookingEntity(
+                    categoryId = "painter",
+                    categoryName = "Professional Painter",
+                    customerId = "customer_1",
+                    customerName = "Haris Mahmood",
+                    customerPhone = "0300-1234567",
+                    workerId = "worker_painter",
+                    workerName = "Imran Khan",
+                    workerPhone = "0321-4445555",
+                    date = "March 18, 2026",
+                    time = "10:00 AM",
+                    address = "House 12-B, Sector F-6, Islamabad",
+                    latitude = 33.6844,
+                    longitude = 73.0479,
+                    description = "Lounge main accent wall painting (Ocean Blue shade).",
+                    estimatedPrice = 4500.0,
+                    status = "COMPLETED",
+                    rating = 5,
+                    review = "Astonishing work, looks beautiful!",
+                    paymentMethod = "WALLET",
+                    createdAt = currentTime - (110 * oneDayMillis)
+                ),
+                // 5 months ago (February 2026)
+                BookingEntity(
+                    categoryId = "electrician",
+                    categoryName = "Electrician",
+                    customerId = "customer_1",
+                    customerName = "Haris Mahmood",
+                    customerPhone = "0300-1234567",
+                    workerId = "worker_electrician",
+                    workerName = "Sajid Qureshi",
+                    workerPhone = "0312-5551111",
+                    date = "February 10, 2026",
+                    time = "03:00 PM",
+                    address = "House 12-B, Sector F-6, Islamabad",
+                    latitude = 33.6844,
+                    longitude = 73.0479,
+                    description = "UPS battery wiring setup and load test.",
+                    estimatedPrice = 1500.0,
+                    status = "COMPLETED",
+                    rating = 5,
+                    review = "Highly recommended for electrical work.",
+                    paymentMethod = "CASH",
+                    createdAt = currentTime - (140 * oneDayMillis)
+                ),
+                // 6 months ago (January 2026)
+                BookingEntity(
+                    categoryId = "mover",
+                    categoryName = "Mover & Packer",
+                    customerId = "customer_1",
+                    customerName = "Haris Mahmood",
+                    customerPhone = "0300-1234567",
+                    workerId = "worker_mover",
+                    workerName = "Bilal Ahmed",
+                    workerPhone = "0311-9990000",
+                    date = "January 05, 2026",
+                    time = "08:00 AM",
+                    address = "Sector I-8, Islamabad to Sector F-6, Islamabad",
+                    latitude = 33.6844,
+                    longitude = 73.0479,
+                    description = "Home furniture safe shifting and heavy box packing.",
+                    estimatedPrice = 8000.0,
+                    status = "COMPLETED",
+                    rating = 4,
+                    review = "Safe shifting, very polite team.",
+                    paymentMethod = "WALLET",
+                    createdAt = currentTime - (175 * oneDayMillis)
+                )
+            )
+
+            for (booking in historicalBookings) {
+                db.bookingDao().insertBooking(booking)
+            }
         }
     }
 }

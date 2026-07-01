@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useColorScheme } from 'react-native';
+import { useColorScheme, Platform } from 'react-native';
 
 export type ThemeType = 'light' | 'dark';
 
@@ -69,20 +69,52 @@ const ThemeContext = createContext<ThemeContextProps | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const systemColorScheme = useColorScheme();
-  const [theme, setThemeState] = useState<ThemeType>(systemColorScheme === 'dark' ? 'dark' : 'light');
+  
+  // Initialize from localStorage if on Web, otherwise fallback to system theme
+  const [theme, setThemeState] = useState<ThemeType>(() => {
+    if (Platform.OS === 'web') {
+      try {
+        const stored = localStorage.getItem('hazir_theme');
+        if (stored === 'light' || stored === 'dark') {
+          return stored;
+        }
+      } catch (e) {
+        console.warn('Failed to retrieve stored theme:', e);
+      }
+    }
+    return systemColorScheme === 'dark' ? 'dark' : 'light';
+  });
 
+  // Track system theme changes as a secondary fallback (only if user hasn't set one or if system changes)
   useEffect(() => {
-    if (systemColorScheme) {
+    if (systemColorScheme && Platform.OS !== 'web') {
       setThemeState(systemColorScheme);
     }
   }, [systemColorScheme]);
 
   const toggleTheme = () => {
-    setThemeState((prev) => (prev === 'light' ? 'dark' : 'light'));
+    setThemeState((prev) => {
+      const nextTheme = prev === 'light' ? 'dark' : 'light';
+      if (Platform.OS === 'web') {
+        try {
+          localStorage.setItem('hazir_theme', nextTheme);
+        } catch (e) {
+          console.warn('Failed to store theme preference:', e);
+        }
+      }
+      return nextTheme;
+    });
   };
 
   const setTheme = (newTheme: ThemeType) => {
     setThemeState(newTheme);
+    if (Platform.OS === 'web') {
+      try {
+        localStorage.setItem('hazir_theme', newTheme);
+      } catch (e) {
+        console.warn('Failed to store theme preference:', e);
+      }
+    }
   };
 
   const isDark = theme === 'dark';

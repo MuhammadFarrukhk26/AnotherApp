@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { Booking as IBooking, CreateBookingDTO } from '@hazir/shared';
+import { API_BASE_URL } from '../../config';
 
 export class BookingRemoteDataSource {
-  private baseUrl = 'https://api.hazir-app.com/api/v1'; // Configuration injected via config
+  private baseUrl = API_BASE_URL;
 
   public async fetchBooking(id: string): Promise<IBooking> {
     try {
@@ -37,6 +38,51 @@ export class BookingRemoteDataSource {
     try {
       const response = await axios.get<{ success: boolean; data: IBooking[] }>(
         `${this.baseUrl}/bookings/customer/${customerId}`
+      );
+      return response.data.data;
+    } catch (error: any) {
+      this.handleApiError(error);
+      throw error;
+    }
+  }
+
+  public async updateBookingStatus(
+    id: string,
+    status: string,
+    workerId?: string,
+    beforePhoto?: string,
+    afterPhoto?: string
+  ): Promise<IBooking> {
+    try {
+      const response = await axios.patch<{ success: boolean; data: IBooking }>(
+        `${this.baseUrl}/bookings/${id}/status`,
+        { status, workerId, beforePhoto, afterPhoto }
+      );
+      return response.data.data;
+    } catch (error: any) {
+      this.handleApiError(error);
+      throw error;
+    }
+  }
+
+  public async payBooking(id: string, paymentMethod: string): Promise<IBooking> {
+    try {
+      const response = await axios.post<{ success: boolean; data: IBooking }>(
+        `${this.baseUrl}/bookings/${id}/pay`,
+        { paymentMethod }
+      );
+      return response.data.data;
+    } catch (error: any) {
+      this.handleApiError(error);
+      throw error;
+    }
+  }
+
+  public async rateBooking(id: string, rating: number, review?: string): Promise<IBooking> {
+    try {
+      const response = await axios.post<{ success: boolean; data: IBooking }>(
+        `${this.baseUrl}/bookings/${id}/rate`,
+        { rating, review }
       );
       return response.data.data;
     } catch (error: any) {

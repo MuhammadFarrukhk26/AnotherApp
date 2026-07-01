@@ -37,6 +37,7 @@ import { BookingFAQSection } from '../components/BookingFAQSection';
 import { PaymentProcessingFlow } from '../components/PaymentProcessingFlow';
 import { useNotifications } from '../components/NotificationManager';
 import axios from 'axios';
+import { API_BASE_URL } from '../../config';
 import { useTheme } from '../state/ThemeContext';
 
 // Try to dynamically load react-native-reanimated for layout transitions
@@ -138,6 +139,7 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
     loading, 
     error, 
     fetchBookingDetails,
+    payBooking,
     favoriteWorkerIds,
     toggleFavoriteWorker 
   } = useBookingStore();
@@ -160,6 +162,10 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
   const [generatedLink, setGeneratedLink] = useState('');
   const [copied, setCopied] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+
+  // Real-time service timer states
+  const [startTime, setStartTime] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
 
   // Network connection status
   const [isOnline, setIsOnline] = useState(true);
@@ -337,7 +343,7 @@ export const BookingDetailScreen: React.FC<BookingDetailScreenProps> = ({
             try {
               console.log('[Cancel Flow] Initiating cancellation request on backend...');
               await axios.patch(
-                `https://api.hazir-app.com/api/v1/bookings/${bookingId}/status`,
+                `${API_BASE_URL}/bookings/${bookingId}/status`,
                 {
                   status: 'CANCELLED',
                 }
@@ -437,6 +443,7 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
   const prevStatusRef = useRef<string | null>(null);
   const prevMessagesCountRef = useRef<number>(-1);
   const isChatOpenRef = useRef(isChatOpen);
+  const hasTriggeredArrivalNotification = useRef(false);
 
   // Keep ref in sync to avoid effect re-binding
   useEffect(() => {
@@ -468,7 +475,7 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
         try {
           console.log('[Simulation] Sending status update ACCEPTED for pending booking...');
           const response = await axios.patch(
-            `https://api.hazir-app.com/api/v1/bookings/${bookingId}/status`,
+            `${API_BASE_URL}/bookings/${bookingId}/status`,
             {
               status: 'ACCEPTED',
               workerId: 'worker_ayaan_sheikh',
@@ -500,7 +507,7 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
       if (!isChatOpenRef.current && isOnline) {
         try {
           const response = await axios.get<{ success: boolean; data: any[] }>(
-            `https://api.hazir-app.com/api/v1/bookings/${bookingId}/messages`
+            `${API_BASE_URL}/bookings/${bookingId}/messages`
           );
           if (response.data?.success && response.data.data) {
             const messages = response.data.data;
@@ -534,7 +541,7 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
         // If chat is open, keep count in sync so closing it later doesn't trigger backlogs
         try {
           const response = await axios.get<{ success: boolean; data: any[] }>(
-            `https://api.hazir-app.com/api/v1/bookings/${bookingId}/messages`
+            `${API_BASE_URL}/bookings/${bookingId}/messages`
           );
           if (response.data?.success && response.data.data) {
             prevMessagesCountRef.current = response.data.data.length;
@@ -556,36 +563,67 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
   useEffect(() => {
     if (currentBooking) {
       const prevStatus = prevStatusRef.current;
-      const currentStatus = currentBooking.status;
+      const currentStatus = currentBooking.status?.toUpperCase() || 'PENDING';
+      const serviceTitle = (currentBooking.serviceType || 'service').replace(/_/g, ' ').toLowerCase();
+      const workerName = 'Ayaan Sheikh';
 
       if (prevStatus && prevStatus !== currentStatus) {
-        if (prevStatus === 'PENDING' && currentStatus === 'ACCEPTED') {
+        if (currentStatus === 'ACCEPTED') {
           showNotification(
             '🛠️ Technician Assigned!',
-            'Ayaan Sheikh has accepted your plumbing booking and is preparing tools.',
+            `${workerName} has accepted your ${serviceTitle} booking and is preparing tools.`,
             {
               icon: '🛠️',
               avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
               onPress: () => setIsChatOpen(true),
             }
           );
-        } else if (prevStatus === 'ACCEPTED' && currentStatus === 'IN_PROGRESS') {
+        } else if (currentStatus === 'EN_ROUTE' || currentStatus === 'ENROUTE') {
           showNotification(
             '🚙 Technician En Route!',
-            'Ayaan Sheikh is traveling to your location with your plumbing tools.',
+            `${workerName} is traveling to your location with your ${serviceTitle} tools.`,
             {
               icon: '🚙',
               avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
               onPress: () => setIsChatOpen(true),
             }
           );
-        } else if (prevStatus === 'IN_PROGRESS' && currentStatus === 'COMPLETED') {
+        } else if (currentStatus === 'ARRIVED') {
+          hasTriggeredArrivalNotification.current = true;
+          showNotification(
+            '📍 Technician Arrived!',
+            `${workerName} has arrived at your address. Please guide them to the service area.`,
+            {
+              icon: '📍',
+              avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
+              onPress: () => setIsChatOpen(true),
+            }
+          );
+        } else if (currentStatus === 'IN_PROGRESS' || currentStatus === 'INPROGRESS') {
+          showNotification(
+            '⚡ Service in Progress!',
+            `${workerName} has started working on your ${serviceTitle} service.`,
+            {
+              icon: '⚡',
+              avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
+              onPress: () => setIsChatOpen(true),
+            }
+          );
+        } else if (currentStatus === 'COMPLETED') {
           showNotification(
             '🎉 Service Completed!',
-            'Your plumbing service has been completed. Please review the invoice and pay.',
+            `Your ${serviceTitle} service has been completed. Please review the invoice and pay.`,
             {
               icon: '🎉',
               avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
+            }
+          );
+        } else if (currentStatus === 'CANCELLED') {
+          showNotification(
+            '❌ Booking Cancelled',
+            `Your ${serviceTitle} booking has been cancelled.`,
+            {
+              icon: '❌',
             }
           );
         }
@@ -594,12 +632,72 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
     }
   }, [currentBooking]);
 
+  // Service Timer helpers
+  const getEstimatedMinutes = (serviceType: string): number => {
+    const type = serviceType?.toLowerCase() || '';
+    if (type.includes('clean')) return 90;
+    if (type.includes('plumb') || type.includes('pipe')) return 60;
+    if (type.includes('electric')) return 60;
+    if (type.includes('ac') || type.includes('condition')) return 120;
+    if (type.includes('paint')) return 180;
+    if (type.includes('carpent') || type.includes('wood')) return 120;
+    return 60; // fallback
+  };
+
+  const formatTime = (totalSecs: number) => {
+    const hrs = Math.floor(totalSecs / 3600);
+    const mins = Math.floor((totalSecs % 3600) / 60);
+    const secs = totalSecs % 60;
+    return [
+      hrs > 0 ? String(hrs).padStart(2, '0') : null,
+      String(mins).padStart(2, '0'),
+      String(secs).padStart(2, '0'),
+    ].filter(Boolean).join(':');
+  };
+
+  // Run the service timer when status is IN_PROGRESS
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    
+    if (activeStatus === 'IN_PROGRESS') {
+      if (!startTime) {
+        // If it was already in progress before simulating, start with 14m 22s.
+        setStartTime(Date.now() - 14 * 60 * 1000 - 22 * 1000);
+      }
+      
+      interval = setInterval(() => {
+        setElapsedSeconds((prev) => {
+          if (startTime) {
+            return Math.floor((Date.now() - startTime) / 1000);
+          }
+          return prev + 1;
+        });
+      }, 1000);
+    } else {
+      if (interval) {
+        clearInterval(interval);
+      }
+    }
+    
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [activeStatus, startTime]);
+
   const activeStatus = localStatus || (currentBooking ? currentBooking.status : 'PENDING');
 
   const finalPrice = currentBooking ? currentBooking.price + extraPrice : 0;
   const formattedPrice = currentBooking
     ? `PKR ${finalPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : '';
+
+  const estMinutes = currentBooking ? getEstimatedMinutes(currentBooking.serviceType) : 60;
+  const estSeconds = estMinutes * 60;
+  const actualSeconds = activeStatus === 'COMPLETED'
+    ? (startTime ? Math.floor((Date.now() - startTime) / 1000) : Math.floor(estSeconds * 0.85))
+    : elapsedSeconds;
+  const progressRatio = estSeconds > 0 ? Math.min(1, actualSeconds / estSeconds) : 0;
+  const isOvertime = actualSeconds > estSeconds;
 
   return (
     <BookingDetailErrorBoundary
@@ -613,9 +711,22 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
           <Text style={[styles.backText, { color: colors.primary }]}>← Back</Text>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Booking Tracker</Text>
-        <TouchableOpacity onPress={toggleTheme} style={[styles.headerToggleBtn, { backgroundColor: colors.border }]} testID="theme_toggle_detail">
-          <Text style={styles.headerToggleBtnText}>{isDark ? '☀️' : '🌙'}</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {currentBooking && currentBooking.workerId && (
+            <TouchableOpacity
+              onPress={() => setIsChatOpen(true)}
+              style={[styles.headerChatBtn, { backgroundColor: colors.primaryLight, marginRight: 8 }]}
+              testID="header_chat_button"
+              accessibilityLabel="Chat with Technician"
+              accessibilityRole="button"
+            >
+              <Text style={styles.headerChatBtnText}>💬</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity onPress={toggleTheme} style={[styles.headerToggleBtn, { backgroundColor: colors.border }]} testID="theme_toggle_detail">
+            <Text style={styles.headerToggleBtnText}>{isDark ? '☀️' : '🌙'}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {!isOnline && (
@@ -677,6 +788,77 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
                 </View>
               </View>
             </Card>
+
+            {/* Real-time Service Timer Component */}
+            {(activeStatus === 'IN_PROGRESS' || activeStatus === 'COMPLETED') && (
+              <Card style={[styles.timerCard, { backgroundColor: colors.card, borderColor: colors.border }]} testID="service_timer_card">
+                <View style={styles.timerHeader}>
+                  <View style={styles.timerTitleRow}>
+                    <Text style={styles.timerPulsingDot}>
+                      {activeStatus === 'IN_PROGRESS' ? '🟢' : '✅'}
+                    </Text>
+                    <Text style={[styles.timerTitle, { color: colors.text }]}>
+                      {activeStatus === 'IN_PROGRESS' ? 'Service Timer (Live)' : 'Service Completed'}
+                    </Text>
+                  </View>
+                  <View style={[styles.timerStatusBadge, { backgroundColor: activeStatus === 'IN_PROGRESS' ? colors.primaryLight : colors.border }]}>
+                    <Text style={[styles.timerStatusBadgeText, { color: activeStatus === 'IN_PROGRESS' ? colors.primary : colors.textSecondary }]}>
+                      {activeStatus === 'IN_PROGRESS' ? 'ACTIVE' : 'FINAL'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.timerMetricsRow}>
+                  <View style={styles.timerMetricColumn}>
+                    <Text style={[styles.timerMetricLabel, { color: colors.textMuted }]}>ESTIMATED DURATION</Text>
+                    <Text style={[styles.timerMetricValue, { color: colors.textSecondary }]}>
+                      {Math.floor(getEstimatedMinutes(currentBooking.serviceType) / 60)}h {getEstimatedMinutes(currentBooking.serviceType) % 60}m
+                    </Text>
+                  </View>
+                  <View style={styles.timerMetricDivider} />
+                  <View style={styles.timerMetricColumn}>
+                    <Text style={[styles.timerMetricLabel, { color: colors.textMuted }]}>ACTUAL TIME SPENT</Text>
+                    <Text style={[styles.timerMetricValueBold, { color: activeStatus === 'IN_PROGRESS' ? colors.primary : colors.success }]}>
+                      {formatTime(actualSeconds)}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Progress Comparison Bar */}
+                <View style={styles.progressBarContainer}>
+                  <View style={[styles.progressBarBackground, { backgroundColor: colors.border }]}>
+                    <View 
+                      style={[
+                        styles.progressBarFill, 
+                        { 
+                          width: `${progressRatio * 100}%`,
+                          backgroundColor: isOvertime 
+                            ? colors.danger 
+                            : activeStatus === 'COMPLETED' 
+                              ? colors.success 
+                              : colors.primary 
+                        }
+                      ]} 
+                    />
+                  </View>
+                  <View style={styles.progressBarLabels}>
+                    <Text style={[styles.progressBarLabelText, { color: colors.textMuted }]}>0%</Text>
+                    <Text style={[styles.progressBarLabelText, { color: colors.textMuted }]}>
+                      {isOvertime ? 'Over Estimated Time' : `${Math.round(progressRatio * 100)}%`}
+                    </Text>
+                    <Text style={[styles.progressBarLabelText, { color: colors.textMuted }]}>100%</Text>
+                  </View>
+                </View>
+
+                {isOvertime && (
+                  <View style={[styles.overtimeNotice, { backgroundColor: isDark ? '#3C1E1E' : '#FEF2F2' }]}>
+                    <Text style={[styles.overtimeNoticeText, { color: colors.danger }]}>
+                      ⚠️ The technician is spending extra care beyond the estimated duration to ensure premium results.
+                    </Text>
+                  </View>
+                )}
+              </Card>
+            )}
             
             <BookingCalendarSync
               bookingId={currentBooking.id}
@@ -783,6 +965,20 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
                       customerLat={currentBooking.latitude}
                       customerLng={currentBooking.longitude}
                       workerName="Ayaan Sheikh"
+                      onArrived={() => {
+                        if (!hasTriggeredArrivalNotification.current) {
+                          hasTriggeredArrivalNotification.current = true;
+                          showNotification(
+                            '📍 Technician Arrived!',
+                            'Ayaan Sheikh has arrived at your address. Please guide them to the service area.',
+                            {
+                              icon: '📍',
+                              avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
+                              onPress: () => setIsChatOpen(true),
+                            }
+                          );
+                        }
+                      }}
                     />
 
                     <LiveWorkerTracking
@@ -797,6 +993,18 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
                       workerId={currentBooking.workerId}
                       onArrived={() => {
                         console.log('Worker has arrived at service destination');
+                        if (!hasTriggeredArrivalNotification.current) {
+                          hasTriggeredArrivalNotification.current = true;
+                          showNotification(
+                            '📍 Technician Arrived!',
+                            'Ayaan Sheikh has arrived at your address. Please guide them to the service area.',
+                            {
+                              icon: '📍',
+                              avatar: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&q=80&w=200&h=200',
+                              onPress: () => setIsChatOpen(true),
+                            }
+                          );
+                        }
                       }}
                     />
                   </View>
@@ -997,7 +1205,7 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
                     console.log(`[Inline Review] Worker: Ayaan Sheikh. Rating: ${rating}. Review: ${review}. Tags: ${tags.join(', ')}`);
                     const finalReview = review + (tags.length > 0 ? ` [${tags.join(', ')}]` : '');
                     const response = await axios.post(
-                      `https://api.hazir-app.com/api/v1/bookings/${bookingId}/rate`,
+                      `${API_BASE_URL}/bookings/${bookingId}/rate`,
                       {
                         rating,
                         review: finalReview,
@@ -1019,14 +1227,24 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
                 totalPrice={finalPrice}
                 isAlreadyPaid={localPaymentStatus === 'PAID'}
                 paymentMethod={localPaymentMethod}
-                onPaymentSuccess={(method) => {
-                  setLocalPaymentStatus('PAID');
-                  setLocalPaymentMethod(method);
-                  Alert.alert(
-                    'Secure Payment Successful',
-                    `Your payment of PKR ${finalPrice.toLocaleString()} via ${method} has been securely processed. Thank you for choosing Hazir!`,
-                    [{ text: 'OK' }]
-                  );
+                onPaymentSuccess={async (method) => {
+                  try {
+                    await payBooking(currentBooking.id, method);
+                    setLocalPaymentStatus('PAID');
+                    setLocalPaymentMethod(method);
+                    Alert.alert(
+                      'Secure Payment Successful',
+                      `Your payment of PKR ${finalPrice.toLocaleString()} via ${method} has been securely processed. Thank you for choosing Hazir!`,
+                      [{ text: 'OK' }]
+                    );
+                  } catch (err) {
+                    console.error('Failed to submit secure payment to backend API:', err);
+                    Alert.alert(
+                      'Payment Error',
+                      'Your payment could not be processed on our server. Please try again.',
+                      [{ text: 'OK' }]
+                    );
+                  }
                 }}
               />
             )}
@@ -1075,12 +1293,46 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
               </View>
             ) : (
               <View>
+                {activeStatus === 'ACCEPTED' && (
+                  <TouchableOpacity
+                    style={styles.simulateStartButton}
+                    onPress={async () => {
+                      try {
+                        await axios.patch(
+                          `${API_BASE_URL}/bookings/${bookingId}/status`,
+                          {
+                            status: 'IN_PROGRESS',
+                          }
+                        );
+                        await fetchBookingDetails(bookingId);
+                        setStartTime(Date.now());
+                        setLocalStatus('IN_PROGRESS');
+                        showNotification(
+                          '🚀 Job Started!',
+                          'Ayaan Sheikh has started working on your service. The real-time timer is active!',
+                          {
+                            icon: '🚀',
+                          }
+                        );
+                      } catch (err) {
+                        console.log('Failed to update status to IN_PROGRESS on backend:', err);
+                        setLocalStatus('IN_PROGRESS');
+                        setStartTime(Date.now());
+                      }
+                    }}
+                    activeOpacity={0.8}
+                    testID="simulate_start_job_button"
+                  >
+                    <Text style={styles.simulateStartButtonText}>🚀 Simulate: Worker Starts Job</Text>
+                  </TouchableOpacity>
+                )}
+
                 <TouchableOpacity
                   style={styles.completeJobButton}
                   onPress={async () => {
                     try {
                       await axios.patch(
-                        `https://api.hazir-app.com/api/v1/bookings/${bookingId}/status`,
+                        `${API_BASE_URL}/bookings/${bookingId}/status`,
                         {
                           status: 'COMPLETED',
                         }
@@ -1119,7 +1371,7 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
                 try {
                   console.log(`Submitted review for Ayaan Sheikh via modal: Rating ${rating}, ${review}`);
                   const response = await axios.post(
-                    `https://api.hazir-app.com/api/v1/bookings/${bookingId}/rate`,
+                    `${API_BASE_URL}/bookings/${bookingId}/rate`,
                     {
                       rating,
                       review,
@@ -1492,6 +1744,21 @@ Thank you for using Hazir – your instant on-demand handyman partner!`;
           </View>
         )}
       </ScrollView>
+
+      {/* Floating Action Button (FAB) for Chat */}
+      {currentBooking && currentBooking.workerId && activeStatus !== 'CANCELLED' && (
+        <TouchableOpacity
+          style={[styles.chatFab, { backgroundColor: colors.primary }]}
+          onPress={() => setIsChatOpen(true)}
+          activeOpacity={0.8}
+          testID="floating_chat_button"
+          accessibilityLabel="Open Secure Chat"
+          accessibilityRole="button"
+        >
+          <Text style={styles.chatFabIcon}>💬</Text>
+          <View style={styles.chatFabBadge} />
+        </TouchableOpacity>
+      )}
     </SafeAreaView>
     </BookingDetailErrorBoundary>
   );
@@ -2674,5 +2941,153 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  timerCard: {
+    marginTop: 16,
+    padding: 16,
+  },
+  timerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  timerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  timerPulsingDot: {
+    fontSize: 14,
+    marginRight: 8,
+  },
+  timerTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  timerStatusBadge: {
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+  timerStatusBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  timerMetricsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  timerMetricColumn: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  timerMetricLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  timerMetricValue: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  timerMetricValueBold: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  timerMetricDivider: {
+    width: 1,
+    height: 30,
+    backgroundColor: '#E2E8F0',
+  },
+  progressBarContainer: {
+    marginBottom: 8,
+  },
+  progressBarBackground: {
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  progressBarLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  progressBarLabelText: {
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  overtimeNotice: {
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 12,
+  },
+  overtimeNoticeText: {
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  simulateStartButton: {
+    borderRadius: 14,
+    height: 52,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  simulateStartButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  headerChatBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerChatBtnText: {
+    fontSize: 16,
+  },
+  chatFab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+  },
+  chatFabIcon: {
+    fontSize: 24,
+  },
+  chatFabBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#10B981',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
 });

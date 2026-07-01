@@ -11,6 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import axios from 'axios';
+import { API_BASE_URL } from '../../config';
 
 interface PaymentProcessingFlowProps {
   bookingId: string;
@@ -200,7 +201,7 @@ export const PaymentProcessingFlow: React.FC<PaymentProcessingFlowProps> = ({
     try {
       // POST payment to API
       const response = await axios.post(
-        `https://api.hazir-app.com/api/v1/bookings/${bookingId}/pay`,
+        `${API_BASE_URL}/bookings/${bookingId}/pay`,
         {
           paymentMethod: chosenMethodLabel,
         }

@@ -5,7 +5,7 @@ export class Booking implements IBooking {
     public id: string,
     public customerId: string,
     public serviceType: string,
-    public status: 'PENDING' | 'ACCEPTED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED',
+    public status: 'PENDING' | 'ACCEPTED' | 'EN_ROUTE' | 'ARRIVED' | 'IN_PROGRESS' | 'STARTED' | 'COMPLETED' | 'CANCELLED',
     public scheduledTime: string,
     public address: string,
     public price: number,
@@ -43,17 +43,19 @@ export class Booking implements IBooking {
     this.workerId = workerId;
   }
 
+  public enRoute(): void {
+    this.status = 'EN_ROUTE';
+  }
+
+  public arrive(): void {
+    this.status = 'ARRIVED';
+  }
+
   public startService(): void {
-    if (this.status !== 'ACCEPTED') {
-      throw new Error(`Cannot start service for booking in ${this.status} status`);
-    }
     this.status = 'IN_PROGRESS';
   }
 
   public completeService(beforePhoto?: string, afterPhoto?: string): void {
-    if (this.status !== 'IN_PROGRESS') {
-      throw new Error(`Cannot complete service for booking in ${this.status} status`);
-    }
     this.status = 'COMPLETED';
     this.beforePhoto = beforePhoto;
     this.afterPhoto = afterPhoto;

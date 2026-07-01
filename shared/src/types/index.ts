@@ -11,7 +11,7 @@ export interface Booking {
   customerId: string;
   workerId?: string;
   serviceType: string;
-  status: 'PENDING' | 'ACCEPTED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  status: 'PENDING' | 'ACCEPTED' | 'EN_ROUTE' | 'ARRIVED' | 'IN_PROGRESS' | 'STARTED' | 'COMPLETED' | 'CANCELLED';
   scheduledTime: string;
   address: string;
   price: number;

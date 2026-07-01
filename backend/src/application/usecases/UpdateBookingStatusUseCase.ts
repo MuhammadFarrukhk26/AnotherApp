@@ -6,7 +6,7 @@ export class UpdateBookingStatusUseCase {
 
   public async execute(
     bookingId: string,
-    status: 'ACCEPTED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED',
+    status: 'ACCEPTED' | 'EN_ROUTE' | 'ARRIVED' | 'IN_PROGRESS' | 'STARTED' | 'COMPLETED' | 'CANCELLED',
     workerId?: string,
     beforePhoto?: string,
     afterPhoto?: string
@@ -16,13 +16,19 @@ export class UpdateBookingStatusUseCase {
       throw new Error(`Booking with ID ${bookingId} not found`);
     }
 
-    if (status === 'ACCEPTED') {
+    const targetStatus = status.toUpperCase();
+
+    if (targetStatus === 'ACCEPTED') {
       booking.accept(workerId || 'worker_ayaan_sheikh');
-    } else if (status === 'IN_PROGRESS') {
+    } else if (targetStatus === 'EN_ROUTE' || targetStatus === 'ENROUTE') {
+      booking.enRoute();
+    } else if (targetStatus === 'ARRIVED') {
+      booking.arrive();
+    } else if (targetStatus === 'IN_PROGRESS' || targetStatus === 'STARTED') {
       booking.startService();
-    } else if (status === 'COMPLETED') {
+    } else if (targetStatus === 'COMPLETED') {
       booking.completeService(beforePhoto, afterPhoto);
-    } else if (status === 'CANCELLED') {
+    } else if (targetStatus === 'CANCELLED') {
       booking.cancel();
     } else {
       throw new Error(`Invalid status transition: ${status}`);
