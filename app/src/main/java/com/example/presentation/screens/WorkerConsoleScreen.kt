@@ -87,7 +87,7 @@ fun WorkerConsoleScreen(
                         ) {
                             Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = NavySecondary, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Sajid (Worker)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                            Text("${workerProfile?.name ?: "Worker"}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
                         }
 
                         DropdownMenu(
@@ -235,7 +235,7 @@ fun WorkerConsoleScreen(
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Completed Jobs", color = Color.Gray, fontSize = 11.sp)
                         Text("${workerProfile?.completedJobs ?: 0}", color = NavySecondary, fontSize = 24.sp, fontWeight = FontWeight.Black)
-                        Text("Rating: ★ 4.8", color = OrangePrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Rating: ★ ${workerProfile?.rating ?: 5.0}", color = OrangePrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }

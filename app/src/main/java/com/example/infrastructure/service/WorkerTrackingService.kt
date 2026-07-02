@@ -86,6 +86,15 @@ class WorkerTrackingService : Service() {
             // Initial position update
             _workerCoordinates.value = Pair(currentLat, currentLng)
 
+            // Trigger "worker en route" push notification alert via NotificationManager
+            val initialEta = calculateEtaMins(currentLat, currentLng, customerLat, customerLng)
+            com.example.infrastructure.notification.NotificationManager.triggerWorkerEnRoute(
+                applicationContext,
+                bookingId,
+                workerName,
+                initialEta
+            )
+
             for (i in 1..ticks) {
                 delay(3000)
                 currentLat += latDelta

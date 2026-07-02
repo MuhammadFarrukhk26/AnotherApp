@@ -70,6 +70,10 @@ class HazirRepositoryImpl(private val db: HazirDatabase) : HazirRepository {
     override fun getWorkerBookingsFlow(workerId: String): Flow<List<Booking>> =
         bookingDao.getWorkerBookingsFlow(workerId).map { list -> list.map { it.toDomain() } }
 
+    override suspend fun getBookingsForWorker(workerId: String): List<Booking> = withContext(Dispatchers.IO) {
+        bookingDao.getBookingsForWorker(workerId).map { it.toDomain() }
+    }
+
     override suspend fun getBookingById(id: Int): Booking? = withContext(Dispatchers.IO) {
         bookingDao.getBookingById(id)?.toDomain()
     }

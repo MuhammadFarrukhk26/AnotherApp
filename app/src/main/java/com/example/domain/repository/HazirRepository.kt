@@ -22,6 +22,7 @@ interface HazirRepository {
     fun getAllBookingsFlow(): Flow<List<Booking>>
     fun getCustomerBookingsFlow(customerId: String): Flow<List<Booking>>
     fun getWorkerBookingsFlow(workerId: String): Flow<List<Booking>>
+    suspend fun getBookingsForWorker(workerId: String): List<Booking>
     suspend fun getBookingById(id: Int): Booking?
     fun getBookingByIdFlow(id: Int): Flow<Booking?>
     suspend fun insertBooking(booking: Booking): Int

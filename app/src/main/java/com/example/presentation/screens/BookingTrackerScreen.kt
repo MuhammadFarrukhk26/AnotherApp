@@ -12,6 +12,7 @@ import android.net.NetworkRequest
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,6 +22,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -62,6 +67,27 @@ fun BookingTrackerScreen(
     val chatMessages by viewModel.activeChatMessages.collectAsStateWithLifecycle()
     val workerLat by viewModel.simulatedWorkerLat.collectAsStateWithLifecycle()
     val workerLng by viewModel.simulatedWorkerLng.collectAsStateWithLifecycle()
+    val userProfile by viewModel.currentUserProfile.collectAsStateWithLifecycle()
+    val userBalance = userProfile?.walletBalance ?: 0.0
+
+    val currentRole by viewModel.currentRole.collectAsStateWithLifecycle()
+    val isWorkerTyping by viewModel.isWorkerTyping.collectAsStateWithLifecycle()
+    val isCustomerTyping by viewModel.isCustomerTyping.collectAsStateWithLifecycle()
+
+    var isRecording by remember { mutableStateOf(false) }
+    var recordingDuration by remember { mutableStateOf(0) }
+    var showAttachmentDialog by remember { mutableStateOf(false) }
+    var isPlayingVoiceId by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(isRecording) {
+        if (isRecording) {
+            recordingDuration = 0
+            while (isRecording) {
+                kotlinx.coroutines.delay(1000)
+                recordingDuration++
+            }
+        }
+    }
 
     var showChatRoom by remember { mutableStateOf(false) }
     var showPaymentDialog by remember { mutableStateOf(false) }
@@ -223,9 +249,25 @@ fun BookingTrackerScreen(
                 SimulatedLiveMap(
                     workerLat = workerLat,
                     workerLng = workerLng,
+                    customerLat = currentBooking.latitude,
+                    customerLng = currentBooking.longitude,
                     status = currentBooking.status,
                     modifier = Modifier.fillMaxSize()
                 )
+
+                // Live Tracking Overlay when technician is en route ("ACCEPTED")
+                if (currentBooking.status == "ACCEPTED" && workerLat != null && workerLng != null) {
+                    LiveTrackingOverlay(
+                        workerLat = workerLat!!,
+                        workerLng = workerLng!!,
+                        customerLat = currentBooking.latitude,
+                        customerLng = currentBooking.longitude,
+                        workerName = currentBooking.workerName ?: "Technician",
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(12.dp)
+                    )
+                }
             }
 
             // 2. Handyman detail panel
@@ -578,40 +620,232 @@ fun BookingTrackerScreen(
                         contentPadding = PaddingValues(vertical = 12.dp)
                     ) {
                         items(chatMessages) { msg ->
-                            val isMe = msg.senderRole == "CUSTOMER"
+                            val isMe = msg.senderRole == currentRole
                             val bubbleColor = if (isMe) OrangePrimary else Color(0xFFF1F5F9)
                             val textColor = if (isMe) Color.White else NavySecondary
                             val alignment = if (isMe) Alignment.CenterEnd else Alignment.CenterStart
 
                             Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = if (isMe) Alignment.End else Alignment.Start) {
-                                Box(
-                                    modifier = Modifier
-                                        .widthIn(max = 260.dp)
-                                        .clip(
-                                            RoundedCornerShape(
-                                                topStart = 12.dp,
-                                                topEnd = 12.dp,
-                                                bottomStart = if (isMe) 12.dp else 2.dp,
-                                                bottomEnd = if (isMe) 2.dp else 12.dp
-                                            )
+                                val isVoice = msg.message.contains("🎙️ [Voice Note")
+                                val isImage = msg.message.startsWith("📷 [Image]")
+
+                                if (isImage) {
+                                    val caption = msg.message.removePrefix("📷 [Image] ").trim()
+                                    Column(
+                                        modifier = Modifier
+                                            .width(220.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(bubbleColor)
+                                            .padding(4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(130.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(
+                                                    if (isMe) OrangePrimary.copy(alpha = 0.15f)
+                                                    else Color.Gray.copy(alpha = 0.1f)
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Icon(
+                                                    imageVector = when {
+                                                        caption.contains("Receipt") -> Icons.Default.ReceiptLong
+                                                        caption.contains("Part") || caption.contains("Spare") -> Icons.Default.Build
+                                                        else -> Icons.Default.CameraAlt
+                                                    },
+                                                    contentDescription = null,
+                                                    tint = textColor.copy(alpha = 0.7f),
+                                                    modifier = Modifier.size(36.dp)
+                                                )
+                                                Text(
+                                                    text = "High-Res Image • Simulated",
+                                                    fontSize = 10.sp,
+                                                    color = textColor.copy(alpha = 0.5f)
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            text = caption,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = textColor,
+                                            modifier = Modifier.padding(6.dp)
                                         )
-                                        .background(bubbleColor)
-                                        .padding(10.dp)
-                                ) {
-                                    Text(
-                                        text = msg.message,
-                                        fontSize = 13.sp,
-                                        color = textColor
-                                    )
+                                    }
+                                } else if (isVoice) {
+                                    val isPlaying = isPlayingVoiceId == msg.id
+                                    Row(
+                                        modifier = Modifier
+                                            .width(220.dp)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(bubbleColor)
+                                            .clickable {
+                                                isPlayingVoiceId = if (isPlaying) null else msg.id
+                                            }
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                                            contentDescription = "Play/Pause",
+                                            tint = textColor,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.height(16.dp)
+                                            ) {
+                                                val barHeights = listOf(8, 14, 10, 16, 12, 6, 12, 8, 14, 10)
+                                                barHeights.forEachIndexed { i, height ->
+                                                    val animatedHeight = if (isPlaying) {
+                                                        val infiniteTransition = rememberInfiniteTransition(label = "wave")
+                                                        val scale by infiniteTransition.animateFloat(
+                                                            initialValue = 0.4f,
+                                                            targetValue = 1.2f,
+                                                            animationSpec = infiniteRepeatable(
+                                                                animation = tween(durationMillis = 400 + (i * 50), easing = LinearEasing),
+                                                                repeatMode = RepeatMode.Reverse
+                                                            ),
+                                                            label = "wave_scale_$i"
+                                                        )
+                                                        height.dp * scale
+                                                    } else {
+                                                        height.dp
+                                                    }
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .width(2.dp)
+                                                            .height(animatedHeight)
+                                                            .clip(CircleShape)
+                                                            .background(textColor.copy(alpha = 0.7f))
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = "Voice Note • 0:08",
+                                                fontSize = 9.sp,
+                                                color = textColor.copy(alpha = 0.7f)
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .widthIn(max = 260.dp)
+                                            .clip(
+                                                RoundedCornerShape(
+                                                    topStart = 12.dp,
+                                                    topEnd = 12.dp,
+                                                    bottomStart = if (isMe) 12.dp else 2.dp,
+                                                    bottomEnd = if (isMe) 2.dp else 12.dp
+                                                )
+                                            )
+                                            .background(bubbleColor)
+                                            .padding(10.dp)
+                                    ) {
+                                        Text(
+                                            text = msg.message,
+                                            fontSize = 13.sp,
+                                            color = textColor
+                                        )
+                                    }
                                 }
                                 val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
-                                Text(
-                                    text = sdf.format(Date(msg.timestamp)),
-                                    fontSize = 9.sp,
-                                    color = Color.Gray,
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                                     modifier = Modifier.padding(top = 2.dp, start = 4.dp, end = 4.dp)
-                                )
+                                ) {
+                                    Text(
+                                        text = sdf.format(Date(msg.timestamp)),
+                                        fontSize = 9.sp,
+                                        color = Color.Gray
+                                    )
+                                    if (isMe) {
+                                        Icon(
+                                            imageVector = Icons.Default.DoneAll,
+                                            contentDescription = "Read",
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier.size(10.dp)
+                                        )
+                                        Text(
+                                            text = "Read",
+                                            fontSize = 8.sp,
+                                            color = Color(0xFF2E7D32)
+                                        )
+                                    }
+                                }
                             }
+                        }
+
+                        // Display typing indicator inside LazyColumn item list if typing
+                        val otherPartyName = if (currentRole == "CUSTOMER") (currentBooking.workerName ?: "Technician") else "Customer"
+                        val isOtherPartyTyping = if (currentRole == "CUSTOMER") isWorkerTyping else isCustomerTyping
+                        if (isOtherPartyTyping) {
+                            item {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.Start
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color(0xFFF1F5F9))
+                                            .padding(8.dp)
+                                    ) {
+                                        TypingIndicator(otherPartyName)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Smart Quick Replies Row
+                    val quickReplies = if (currentRole == "CUSTOMER") {
+                        listOf(
+                            "Where are you now?",
+                            "What is the total estimated cost?",
+                            "Do you need me to buy any material?",
+                            "Okay, sure! I'll be waiting.",
+                            "Please bring a drill machine."
+                        )
+                    } else {
+                        listOf(
+                            "I am on my way to your location.",
+                            "I will be reaching in 5 minutes Insha'Allah.",
+                            "I am starting the service work now.",
+                            "What is your complete apartment/street address?",
+                            "Could you please show me a photo of the problem?"
+                        )
+                    }
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFF8FAFC))
+                            .border(BorderStroke(0.5.dp, Color.LightGray.copy(alpha = 0.3f)))
+                    ) {
+                        items(quickReplies) { reply ->
+                            SuggestionChip(
+                                onClick = {
+                                    viewModel.sendChatMessage(currentBooking.id, reply)
+                                },
+                                label = { Text(reply, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = OrangePrimary) },
+                                border = BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.3f)),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = AssistChipDefaults.assistChipColors(
+                                    containerColor = OrangePrimary.copy(alpha = 0.05f)
+                                )
+                            )
                         }
                     }
 
@@ -629,32 +863,147 @@ fun BookingTrackerScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            OutlinedTextField(
-                                value = chatInput,
-                                onValueChange = { chatInput = it },
-                                placeholder = { Text("Type a message...", fontSize = 13.sp) },
-                                modifier = Modifier.weight(1f).testTag("chat_input_field"),
-                                shape = RoundedCornerShape(20.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = OrangePrimary,
-                                    cursorColor = OrangePrimary
+                            IconButton(
+                                onClick = { showAttachmentDialog = true },
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Color.Gray.copy(alpha = 0.1f))
+                                    .size(40.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "Add Attachment", tint = NavySecondary)
+                            }
+
+                            if (isRecording) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(44.dp)
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(Color(0xFFFFF1F2))
+                                        .padding(horizontal = 16.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+                                        val alpha by infiniteTransition.animateFloat(
+                                            initialValue = 0.3f,
+                                            targetValue = 1f,
+                                            animationSpec = infiniteRepeatable(
+                                                animation = tween(500, easing = LinearEasing),
+                                                repeatMode = RepeatMode.Reverse
+                                            ),
+                                            label = "pulse_alpha"
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .graphicsLayer(alpha = alpha)
+                                                .clip(CircleShape)
+                                                .background(Color.Red)
+                                        )
+                                        Text(
+                                            text = "Recording Voice... 0:${String.format("%02d", recordingDuration)}",
+                                            fontSize = 12.sp,
+                                            color = Color.Red,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            } else {
+                                OutlinedTextField(
+                                    value = chatInput,
+                                    onValueChange = { chatInput = it },
+                                    placeholder = { Text("Type a message...", fontSize = 13.sp) },
+                                    modifier = Modifier.weight(1f).testTag("chat_input_field"),
+                                    shape = RoundedCornerShape(20.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = OrangePrimary,
+                                        cursorColor = OrangePrimary
+                                    )
                                 )
-                            )
+                            }
+
                             IconButton(
                                 onClick = {
-                                    if (chatInput.trim().isNotEmpty()) {
-                                        viewModel.sendChatMessage(currentBooking.id, chatInput)
-                                        chatInput = ""
+                                    if (isRecording) {
+                                        isRecording = false
+                                        viewModel.sendChatMessage(currentBooking.id, "🎙️ [Voice Note - 0:0$recordingDuration] 🔊 Play")
+                                    } else {
+                                        isRecording = true
                                     }
                                 },
                                 modifier = Modifier
                                     .clip(CircleShape)
-                                    .background(OrangePrimary)
-                                    .size(44.dp)
+                                    .background(if (isRecording) Color.Red else Color.Gray.copy(alpha = 0.1f))
+                                    .size(40.dp)
                             ) {
-                                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White)
+                                Icon(
+                                    imageVector = if (isRecording) Icons.Default.Stop else Icons.Default.Mic,
+                                    contentDescription = "Voice Note",
+                                    tint = if (isRecording) Color.White else NavySecondary
+                                )
+                            }
+
+                            if (!isRecording) {
+                                IconButton(
+                                    onClick = {
+                                        if (chatInput.trim().isNotEmpty()) {
+                                            viewModel.sendChatMessage(currentBooking.id, chatInput)
+                                            chatInput = ""
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(OrangePrimary)
+                                        .size(44.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", tint = Color.White)
+                                }
                             }
                         }
+                    }
+
+                    if (showAttachmentDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showAttachmentDialog = false },
+                            title = { Text("Send Simulated Attachment", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = NavySecondary) },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("Select a media type to simulate real-time file sharing with the other party:", fontSize = 12.sp, color = Color.Gray)
+                                    
+                                    listOf(
+                                        Triple("📸 Capture Job Area", "📷 [Image] Work Area Photo", Icons.Default.CameraAlt),
+                                        Triple("📄 Material Invoice / Receipt", "📷 [Image] Material Receipt", Icons.Default.ReceiptLong),
+                                        Triple("🔧 Replacement Spare Part", "📷 [Image] Replacement Spare Part", Icons.Default.Build)
+                                    ).forEach { (label, payload, icon) ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    viewModel.sendChatMessage(currentBooking.id, payload)
+                                                    showAttachmentDialog = false
+                                                }
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Icon(imageVector = icon, contentDescription = null, tint = OrangePrimary, modifier = Modifier.size(24.dp))
+                                            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = NavySecondary)
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {},
+                            dismissButton = {
+                                TextButton(onClick = { showAttachmentDialog = false }) {
+                                    Text("Cancel", color = Color.Gray)
+                                }
+                            }
+                        )
                     }
                 }
             }
@@ -664,13 +1013,24 @@ fun BookingTrackerScreen(
         if (showPaymentDialog) {
             RatingAndReviewDialog(
                 estimatedPrice = currentBooking.estimatedPrice,
-                onConfirm = { rating, review ->
-                    viewModel.payAndReviewBooking(currentBooking.id, rating, review)
+                initialPaymentMethod = currentBooking.paymentMethod,
+                userBalance = userBalance,
+                onConfirm = { rating, review, tip, method ->
+                    viewModel.payAndReviewBooking(
+                        bookingId = currentBooking.id,
+                        rating = rating,
+                        review = review,
+                        tipAmount = tip,
+                        finalPaymentMethod = method
+                    )
                     showPaymentDialog = false
                     viewModel.selectBooking(null)
                     onBack()
                 },
-                onDismiss = { showPaymentDialog = false }
+                onDismiss = { showPaymentDialog = false },
+                onTopUp = { amount ->
+                    viewModel.depositWalletFunds(amount)
+                }
             )
         }
 
@@ -1066,6 +1426,234 @@ fun BookingFAQSection() {
                     HorizontalDivider(color = Color(0xFFF1F5F9))
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun LiveTrackingOverlay(
+    workerLat: Double,
+    workerLng: Double,
+    customerLat: Double,
+    customerLng: Double,
+    workerName: String,
+    modifier: Modifier = Modifier
+) {
+    val (etaMins, distanceKm) = remember(workerLat, workerLng, customerLat, customerLng) {
+        val R = 6371.0 // Earth radius in km
+        val dLat = Math.toRadians(customerLat - workerLat)
+        val dLng = Math.toRadians(customerLng - workerLng)
+        val a = kotlin.math.sin(dLat / 2.0) * kotlin.math.sin(dLat / 2.0) +
+                kotlin.math.cos(Math.toRadians(workerLat)) * kotlin.math.cos(Math.toRadians(customerLat)) *
+                kotlin.math.sin(dLng / 2.0) * kotlin.math.sin(dLng / 2.0)
+        val c = 2.0 * kotlin.math.atan2(kotlin.math.sqrt(a), kotlin.math.sqrt(1.0 - a))
+        val directKm = R * c
+
+        val routingKm = directKm * 1.35
+        val eta = kotlin.math.max(1, kotlin.math.round(routingKm / 0.5).toInt())
+        Pair(eta, routingKm)
+    }
+
+    // Fluctuate speed slightly to give a real-time tracking sensation
+    val simulatedSpeed = remember(workerLat, workerLng) {
+        (28..34).random()
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse_tracking")
+    val dotAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "dot_alpha"
+    )
+
+    Card(
+        modifier = modifier
+            .widthIn(max = 280.dp)
+            .testTag("live_tracking_overlay_card"),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        border = BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.2f))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Live Badge Header
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF2E7D32).copy(alpha = dotAlpha))
+                    )
+                    Text(
+                        text = "LIVE TRACKING",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color(0xFF2E7D32),
+                        letterSpacing = 0.8.sp
+                    )
+                }
+                Text(
+                    text = "on Suzuki GD 110S",
+                    fontSize = 9.sp,
+                    color = Color.Gray,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            // ETA and status
+            Text(
+                text = "$workerName is en route",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = NavySecondary
+            )
+
+            HorizontalDivider(color = Color.LightGray.copy(alpha = 0.3f))
+
+            // Real-time metrics
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccessTime,
+                            contentDescription = "ETA",
+                            tint = OrangePrimary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = if (etaMins == 1) "Under 1 min" else "$etaMins mins",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = NavySecondary
+                        )
+                    }
+                    Text(
+                        text = "Est. Arrival",
+                        fontSize = 9.sp,
+                        color = Color.Gray
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray.copy(alpha = 0.5f)))
+
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Navigation,
+                            contentDescription = "Distance",
+                            tint = NavySecondary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = String.format(Locale.US, "%.1f km", distanceKm),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = NavySecondary
+                        )
+                    }
+                    Text(
+                        text = "Distance Left",
+                        fontSize = 9.sp,
+                        color = Color.Gray
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(1.dp).height(24.dp).background(Color.LightGray.copy(alpha = 0.5f)))
+
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Speed,
+                            contentDescription = "Speed",
+                            tint = Color(0xFFFF9F1C),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "$simulatedSpeed km/h",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = NavySecondary
+                        )
+                    }
+                    Text(
+                        text = "Avg Speed",
+                        fontSize = 9.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TypingIndicator(name: String) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.padding(vertical = 4.dp, horizontal = 12.dp)
+    ) {
+        val infiniteTransition = rememberInfiniteTransition(label = "dots")
+        
+        Text(
+            text = "$name is typing",
+            fontSize = 11.sp,
+            color = Color.Gray,
+            fontWeight = FontWeight.Medium
+        )
+        
+        listOf(0, 1, 2).forEach { index ->
+            val delayMillis = index * 150
+            val scale by infiniteTransition.animateFloat(
+                initialValue = 0.2f,
+                targetValue = 1.2f,
+                animationSpec = infiniteRepeatable(
+                    animation = keyframes {
+                        durationMillis = 600
+                        0.2f at delayMillis with FastOutSlowInEasing
+                        1.2f at delayMillis + 150 with FastOutSlowInEasing
+                        0.2f at delayMillis + 300 with FastOutSlowInEasing
+                    },
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "dot_scale_$index"
+            )
+            
+            Box(
+                modifier = Modifier
+                    .size(4.dp)
+                    .graphicsLayer(scaleX = scale, scaleY = scale)
+                    .clip(CircleShape)
+                    .background(Color.Gray)
+            )
         }
     }
 }

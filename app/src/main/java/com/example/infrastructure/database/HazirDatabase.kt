@@ -147,6 +147,9 @@ interface BookingDao {
     @Query("SELECT * FROM bookings WHERE workerId = :workerId ORDER BY createdAt DESC")
     fun getWorkerBookingsFlow(workerId: String): Flow<List<BookingEntity>>
 
+    @Query("SELECT * FROM bookings WHERE workerId = :workerId")
+    suspend fun getBookingsForWorker(workerId: String): List<BookingEntity>
+
     @Query("SELECT * FROM bookings WHERE id = :id")
     suspend fun getBookingById(id: Int): BookingEntity?
 

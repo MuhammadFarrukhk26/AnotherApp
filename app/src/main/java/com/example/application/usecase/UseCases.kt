@@ -57,6 +57,10 @@ class GetWorkerBookingsUseCase(private val repository: HazirRepository) {
     operator fun invoke(workerId: String): Flow<List<Booking>> = repository.getWorkerBookingsFlow(workerId)
 }
 
+class GetBookingsForWorkerUseCase(private val repository: HazirRepository) {
+    suspend operator fun invoke(workerId: String): List<Booking> = repository.getBookingsForWorker(workerId)
+}
+
 class GetBookingByIdFlowUseCase(private val repository: HazirRepository) {
     operator fun invoke(id: Int): Flow<Booking?> = repository.getBookingByIdFlow(id)
 }

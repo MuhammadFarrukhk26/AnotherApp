@@ -3,6 +3,7 @@ package com.example.presentation.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -268,7 +269,10 @@ fun CustomerHomeScreen(
                 )
                 2 -> BookingsHistoryTabContent(
                     bookings = bookings,
-                    onTrackBooking = onTrackBooking
+                    onTrackBooking = onTrackBooking,
+                    onRateBooking = { id, rating, review ->
+                        viewModel.submitPostServiceRating(id, rating, review)
+                    }
                 )
                 3 -> WalletTabContent(
                     viewModel = viewModel,
@@ -315,6 +319,18 @@ fun HomeTabContent(
     onNavigateToAi: () -> Unit,
     onTrackBooking: (Int) -> Unit
 ) {
+    var selectedFilter by remember { mutableStateOf("All") }
+    val filterOptions = remember(categories) {
+        listOf("All") + categories.map { it.name }
+    }
+    val filteredCategories = remember(categories, selectedFilter) {
+        if (selectedFilter == "All") {
+            categories
+        } else {
+            categories.filter { it.name.equals(selectedFilter, ignoreCase = true) }
+        }
+    }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
@@ -446,19 +462,64 @@ fun HomeTabContent(
                 fontWeight = FontWeight.Bold,
                 color = NavySecondary
             )
-            Text(
-                text = "View All",
-                fontSize = 12.sp,
-                color = OrangePrimary,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.clickable { }
-            )
+            if (selectedFilter != "All") {
+                Text(
+                    text = "Clear Filter",
+                    fontSize = 12.sp,
+                    color = OrangePrimary,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { selectedFilter = "All" }
+                )
+            } else {
+                Text(
+                    text = "View All",
+                    fontSize = 12.sp,
+                    color = OrangePrimary,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { }
+                )
+            }
+        }
+
+        // Horizontal Category Selection Bar
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            filterOptions.forEach { option ->
+                val isSelected = selectedFilter == option
+                val backgroundColor = if (isSelected) OrangePrimary else OrangePrimary.copy(alpha = 0.08f)
+                val textColor = if (isSelected) Color.White else NavySecondary
+                val borderStroke = if (isSelected) null else BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.2f))
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(backgroundColor)
+                        .then(if (borderStroke != null) Modifier.border(borderStroke, RoundedCornerShape(20.dp)) else Modifier)
+                        .clickable { selectedFilter = option }
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("category_filter_$option"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = option,
+                        color = textColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
 
         // Grid of services categories
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val columns = if (maxWidth > 600.dp) 6 else 4
-            val chunkedCategories = categories.chunked(columns)
+            val chunkedCategories = filteredCategories.chunked(columns)
 
             Column(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -728,9 +789,25 @@ fun AiAdvisorTabContent(
 @Composable
 fun BookingsHistoryTabContent(
     bookings: List<Booking>,
-    onTrackBooking: (Int) -> Unit
+    onTrackBooking: (Int) -> Unit,
+    onRateBooking: (Int, Int, String) -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(0) } // 0: Active, 1: Past, 2: Insights
+    var ratingBooking by remember { mutableStateOf<Booking?>(null) }
+
+    if (ratingBooking != null) {
+        PostServiceRatingDialog(
+            workerName = ratingBooking?.workerName ?: "Technician",
+            categoryName = ratingBooking?.categoryName ?: "Service",
+            onConfirm = { rating, review ->
+                ratingBooking?.let {
+                    onRateBooking(it.id, rating, review)
+                }
+                ratingBooking = null
+            },
+            onDismiss = { ratingBooking = null }
+        )
+    }
 
     val pendingBookings = bookings.filter { it.status != "COMPLETED" && it.status != "CANCELLED" }
     val pastBookings = bookings.filter { it.status == "COMPLETED" || it.status == "CANCELLED" }
@@ -957,12 +1034,33 @@ fun BookingsHistoryTabContent(
                                                 )
                                             }
                                         } else {
-                                            Text(
-                                                text = "Completed",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF1B5E20)
-                                            )
+                                            Button(
+                                                onClick = { ratingBooking = booking },
+                                                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                                modifier = Modifier
+                                                    .height(32.dp)
+                                                    .testTag("rate_booking_button_${booking.id}"),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Star,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                    Text(
+                                                        text = "Rate Service",
+                                                        color = Color.White,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 } else if (booking.status == "CANCELLED") {

@@ -32,6 +32,7 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
     private val getAllBookingsAdminUseCase: GetAllBookingsAdminUseCase
     private val getCustomerBookingsUseCase: GetCustomerBookingsUseCase
     private val getWorkerBookingsUseCase: GetWorkerBookingsUseCase
+    private val getBookingsForWorkerUseCase: GetBookingsForWorkerUseCase
     private val getBookingByIdFlowUseCase: GetBookingByIdFlowUseCase
     private val getBookingByIdUseCase: GetBookingByIdUseCase
     private val requestBookingUseCase: RequestBookingUseCase
@@ -87,6 +88,13 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
     private val _aiLoading = MutableStateFlow(false)
     val aiLoading: StateFlow<Boolean> = _aiLoading.asStateFlow()
 
+    // Typing states for customer-worker real-time chat
+    private val _isWorkerTyping = MutableStateFlow(false)
+    val isWorkerTyping: StateFlow<Boolean> = _isWorkerTyping.asStateFlow()
+
+    private val _isCustomerTyping = MutableStateFlow(false)
+    val isCustomerTyping: StateFlow<Boolean> = _isCustomerTyping.asStateFlow()
+
     // Live Simulated Map Coordinate (Worker current lat/lng during transit)
     private val _simulatedWorkerLat = MutableStateFlow<Double?>(null)
     val simulatedWorkerLat: StateFlow<Double?> = _simulatedWorkerLat.asStateFlow()
@@ -112,6 +120,7 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
         getAllBookingsAdminUseCase = GetAllBookingsAdminUseCase(repository)
         getCustomerBookingsUseCase = GetCustomerBookingsUseCase(repository)
         getWorkerBookingsUseCase = GetWorkerBookingsUseCase(repository)
+        getBookingsForWorkerUseCase = GetBookingsForWorkerUseCase(repository)
         getBookingByIdFlowUseCase = GetBookingByIdFlowUseCase(repository)
         getBookingByIdUseCase = GetBookingByIdUseCase(repository)
         requestBookingUseCase = RequestBookingUseCase(repository)
@@ -170,7 +179,25 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
             _currentRole.value = role
             val userId = when (role) {
                 "CUSTOMER" -> "customer_1"
-                "WORKER" -> "worker_electrician" // Sajid by default
+                "WORKER" -> {
+                    val activeTrackId = _selectedBookingId.value
+                    var matchedWorkerId: String? = null
+                    if (activeTrackId != null) {
+                        val booking = getBookingByIdUseCase(activeTrackId)
+                        if (booking != null && booking.workerId != null) {
+                            matchedWorkerId = booking.workerId
+                        }
+                    }
+                    if (matchedWorkerId == null) {
+                        val activeBooking = customerBookings.value.firstOrNull {
+                            it.status != "COMPLETED" && it.status != "CANCELLED"
+                        }
+                        if (activeBooking != null && activeBooking.workerId != null) {
+                            matchedWorkerId = activeBooking.workerId
+                        }
+                    }
+                    matchedWorkerId ?: "worker_electrician"
+                }
                 "ADMIN" -> "admin_1"
                 else -> ""
             }
@@ -384,6 +411,14 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
             )
             updateBookingUseCase(updated)
 
+            // Trigger "completed" push notification via NotificationManager
+            com.example.infrastructure.notification.NotificationManager.triggerJobCompleted(
+                getApplication(),
+                bookingId,
+                booking.workerName ?: "Technician",
+                booking.categoryName
+            )
+
             sendChatMessageUseCase(
                 ChatMessage(
                     bookingId = bookingId,
@@ -395,46 +430,123 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun payAndReviewBooking(bookingId: Int, rating: Int, review: String) {
+    fun payAndReviewBooking(bookingId: Int, rating: Int, review: String, tipAmount: Double = 0.0, finalPaymentMethod: String? = null) {
         viewModelScope.launch {
             val booking = getBookingByIdUseCase(bookingId) ?: return@launch
             if (booking.status == "COMPLETED") {
                 val senderId = booking.customerId
                 val receiverId = booking.workerId ?: "worker_electrician"
+                val method = finalPaymentMethod ?: booking.paymentMethod
+                val totalAmount = booking.estimatedPrice + tipAmount
                 
                 val userProfile = getUserByIdUseCase(senderId)
-                if (userProfile != null && userProfile.walletBalance >= booking.estimatedPrice) {
-                    transferFundsUseCase(
-                        senderId = senderId,
-                        receiverId = receiverId,
-                        amount = booking.estimatedPrice,
-                        description = "Booking #${booking.id} - ${booking.categoryName}"
-                    )
-
-                    // Update booking rating & payment confirmation
-                    val updated = booking.copy(
-                        status = "COMPLETED",
-                        rating = rating,
-                        review = review
-                    )
-                    updateBookingUseCase(updated)
-
-                    // Increment worker's completed jobs
-                    val worker = getUserByIdUseCase(receiverId)
-                    if (worker != null) {
-                        updateUserUseCase(worker.copy(completedJobs = worker.completedJobs + 1))
+                if (userProfile != null) {
+                    var paymentSuccess = false
+                    
+                    if (method == "CASH") {
+                        // Cash payment completed directly
+                        paymentSuccess = true
+                    } else if (method == "CARD" || method == "EASYPAISA" || method == "JAZZCASH") {
+                        // Direct secure online checkout: simulate deposit into user's in-app wallet then transfer
+                        depositWalletFundsUseCase(senderId, totalAmount, "Auto-deposit for booking checkout ($method)")
+                        transferFundsUseCase(
+                            senderId = senderId,
+                            receiverId = receiverId,
+                            amount = totalAmount,
+                            description = "Booking #${booking.id} - ${booking.categoryName} (via $method)"
+                        )
+                        paymentSuccess = true
+                    } else { // WALLET (Hazir Wallet)
+                        if (userProfile.walletBalance >= totalAmount) {
+                            transferFundsUseCase(
+                                senderId = senderId,
+                                receiverId = receiverId,
+                                amount = totalAmount,
+                                description = "Booking #${booking.id} - ${booking.categoryName}"
+                            )
+                            paymentSuccess = true
+                        } else {
+                            Log.e(TAG, "Insufficient balance for HAZIR wallet payment!")
+                        }
                     }
 
-                    sendChatMessageUseCase(
-                        ChatMessage(
-                            bookingId = bookingId,
-                            senderId = "system",
-                            senderRole = "SYSTEM",
-                            message = "Payment of PKR ${booking.estimatedPrice} completed successfully! Thank you for choosing Hazir."
+                    if (paymentSuccess) {
+                        // Update booking rating & payment confirmation
+                        val updated = booking.copy(
+                            status = "COMPLETED",
+                            rating = rating,
+                            review = review,
+                            paymentMethod = method
                         )
-                    )
+                        updateBookingUseCase(updated)
+
+                        // Increment worker's completed jobs and calculate average rating
+                        val worker = getUserByIdUseCase(receiverId)
+                        if (worker != null) {
+                            val allWorkerBookings = getBookingsForWorkerUseCase(receiverId)
+                            val ratedBookings = (allWorkerBookings.filter { it.id != booking.id } + updated)
+                                .filter { it.rating != null }
+                            
+                            val avgRating = if (ratedBookings.isNotEmpty()) {
+                                ratedBookings.mapNotNull { it.rating }.average()
+                            } else {
+                                rating.toDouble()
+                            }
+
+                            updateUserUseCase(worker.copy(
+                                completedJobs = worker.completedJobs + 1,
+                                rating = Math.round(avgRating * 10.0) / 10.0
+                            ))
+                        }
+
+                        val workerDispName = booking.workerName ?: "Technician"
+                        val successMsg = when (method) {
+                            "CASH" -> "Alhamdulillah, Cash payment of PKR ${booking.estimatedPrice} (+ PKR ${tipAmount.toInt()} tip) handed over to $workerDispName."
+                            else -> "Payment of PKR ${totalAmount} (Base: ${booking.estimatedPrice} + Tip: ${tipAmount.toInt()}) completed securely via $method! Thank you for choosing Hazir."
+                        }
+
+                        sendChatMessageUseCase(
+                            ChatMessage(
+                                bookingId = bookingId,
+                                senderId = "system",
+                                senderRole = "SYSTEM",
+                                message = successMsg
+                            )
+                        )
+                    }
                 } else {
-                    Log.e(TAG, "Insufficient balance for payment!")
+                    Log.e(TAG, "User profile not found for payment!")
+                }
+            }
+        }
+    }
+
+    fun submitPostServiceRating(bookingId: Int, rating: Int, review: String) {
+        viewModelScope.launch {
+            val booking = getBookingByIdUseCase(bookingId) ?: return@launch
+            val updated = booking.copy(
+                rating = rating,
+                review = review
+            )
+            updateBookingUseCase(updated)
+
+            val workerId = booking.workerId
+            if (workerId != null) {
+                val worker = getUserByIdUseCase(workerId)
+                if (worker != null) {
+                    val allWorkerBookings = getBookingsForWorkerUseCase(workerId)
+                    val ratedBookings = (allWorkerBookings.filter { it.id != booking.id } + updated)
+                        .filter { it.rating != null }
+                    
+                    val avgRating = if (ratedBookings.isNotEmpty()) {
+                        ratedBookings.mapNotNull { it.rating }.average()
+                    } else {
+                        rating.toDouble()
+                    }
+
+                    updateUserUseCase(worker.copy(
+                        rating = Math.round(avgRating * 10.0) / 10.0
+                    ))
                 }
             }
         }
@@ -456,10 +568,14 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
             )
             sendChatMessageUseCase(message)
 
-            // Auto-reply simulation if role is Customer and booking is active
+            // Auto-reply simulation if booking is active
             val booking = getBookingByIdUseCase(bookingId) ?: return@launch
-            if (role == "CUSTOMER" && booking.status != "COMPLETED" && booking.status != "CANCELLED") {
-                simulateWorkerChatMessageReply(bookingId, text)
+            if (booking.status != "COMPLETED" && booking.status != "CANCELLED") {
+                if (role == "CUSTOMER") {
+                    simulateWorkerChatMessageReply(bookingId, text)
+                } else if (role == "WORKER") {
+                    simulateCustomerChatMessageReply(bookingId, text)
+                }
             }
         }
     }
@@ -551,6 +667,14 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
                 )
                 updateBookingUseCase(updated)
 
+                // Trigger "accepted" push notification via NotificationManager
+                com.example.infrastructure.notification.NotificationManager.triggerRequestAccepted(
+                    getApplication(),
+                    bookingId,
+                    matchedWorker.name ?: "Technician",
+                    acceptedBooking.categoryName
+                )
+
                 sendChatMessageUseCase(
                     ChatMessage(
                         bookingId = bookingId,
@@ -599,20 +723,50 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
                     delay(5000)
                     val arrivedBooking = getBookingByIdUseCase(bookingId) ?: return@launch
                     if (arrivedBooking.status == "ARRIVED") {
-                        updateBookingUseCase(arrivedBooking.copy(status = "STARTED"))
-                        sendChatMessageUseCase(
-                            ChatMessage(
-                                bookingId = bookingId,
-                                senderId = matchedWorker.id,
-                                senderRole = "WORKER",
-                                message = "I am starting the service work now."
+                        if (_currentRole.value == "WORKER" && _currentUserId.value == arrivedBooking.workerId) {
+                            // Yield to manual "Start Work Task" button click by the worker
+                            while (getBookingByIdUseCase(bookingId)?.status == "ARRIVED") {
+                                delay(1000)
+                            }
+                        } else {
+                            // Automatically start work after delay
+                            updateBookingUseCase(arrivedBooking.copy(status = "STARTED"))
+                            sendChatMessageUseCase(
+                                ChatMessage(
+                                    bookingId = bookingId,
+                                    senderId = matchedWorker.id,
+                                    senderRole = "WORKER",
+                                    message = "I am starting the service work now."
+                                )
                             )
-                        )
+                        }
+                    }
 
-                        delay(10000)
-                        val startedBooking = getBookingByIdUseCase(bookingId) ?: return@launch
-                        if (startedBooking.status == "STARTED") {
+                    // Wait until status transitions out of ARRIVED (either manually or automatically)
+                    while ((getBookingByIdUseCase(bookingId)?.status ?: "") == "ARRIVED") {
+                        delay(1000)
+                    }
+
+                    delay(10000)
+                    val startedBooking = getBookingByIdUseCase(bookingId) ?: return@launch
+                    if (startedBooking.status == "STARTED") {
+                        if (_currentRole.value == "WORKER" && _currentUserId.value == startedBooking.workerId) {
+                            // Yield to manual "Complete Task" button click by the worker
+                            while (getBookingByIdUseCase(bookingId)?.status == "STARTED") {
+                                delay(1000)
+                            }
+                        } else {
+                            // Automatically complete job after delay
                             updateBookingUseCase(startedBooking.copy(status = "COMPLETED"))
+
+                            // Trigger "completed" push notification via NotificationManager
+                            com.example.infrastructure.notification.NotificationManager.triggerJobCompleted(
+                                getApplication(),
+                                bookingId,
+                                matchedWorker.name ?: "Technician",
+                                startedBooking.categoryName
+                            )
+
                             sendChatMessageUseCase(
                                 ChatMessage(
                                     bookingId = bookingId,
@@ -630,7 +784,9 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun simulateWorkerChatMessageReply(bookingId: Int, customerMsg: String) {
         viewModelScope.launch(Dispatchers.Default) {
+            _isWorkerTyping.value = true
             delay(2500)
+            _isWorkerTyping.value = false
             val booking = getBookingByIdUseCase(bookingId) ?: return@launch
             val workerName = booking.workerName ?: "Handyman"
 
@@ -657,6 +813,42 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
                     bookingId = bookingId,
                     senderId = booking.workerId ?: "worker",
                     senderRole = "WORKER",
+                    message = replyText
+                )
+            )
+        }
+    }
+
+    private fun simulateCustomerChatMessageReply(bookingId: Int, workerMsg: String) {
+        viewModelScope.launch(Dispatchers.Default) {
+            _isCustomerTyping.value = true
+            delay(2500)
+            _isCustomerTyping.value = false
+            val booking = getBookingByIdUseCase(bookingId) ?: return@launch
+
+            val replyText = when {
+                workerMsg.lowercase().contains("start") || workerMsg.lowercase().contains("starting") || workerMsg.lowercase().contains("work") -> {
+                    "Perfect, please go ahead. Let me know if you need access to any sockets or a ladder."
+                }
+                workerMsg.lowercase().contains("arrive") || workerMsg.lowercase().contains("arrived") || workerMsg.lowercase().contains("outside") || workerMsg.lowercase().contains("reached") -> {
+                    "Okay great, I am coming downstairs to open the door."
+                }
+                workerMsg.lowercase().contains("price") || workerMsg.lowercase().contains("cost") || workerMsg.lowercase().contains("pkr") || workerMsg.lowercase().contains("material") -> {
+                    "Sure, please let me know how much the materials cost, and I can pay you directly in the app or cash."
+                }
+                workerMsg.lowercase().contains("completed") || workerMsg.lowercase().contains("finish") || workerMsg.lowercase().contains("done") -> {
+                    "Alhamdulillah! Thank you. I am checking the work now and will complete the payment."
+                }
+                else -> {
+                    "Sounds good, thank you for clarifying!"
+                }
+            }
+
+            sendChatMessageUseCase(
+                ChatMessage(
+                    bookingId = bookingId,
+                    senderId = booking.customerId,
+                    senderRole = "CUSTOMER",
                     message = replyText
                 )
             )
