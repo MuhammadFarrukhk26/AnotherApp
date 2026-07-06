@@ -1,6 +1,12 @@
 package com.example.presentation.screens
 
+import android.util.Log
 import androidx.compose.animation.core.*
+import com.example.infrastructure.api.StripeClient
+import com.example.infrastructure.api.StripeTokenResult
+import com.example.infrastructure.api.StripePaymentResult
+import kotlinx.coroutines.launch
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,7 +28,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -89,6 +97,7 @@ fun SimulatedLiveMap(
     // Drag tracking for interactive panning of the canvas
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
+    var zoomScale by remember { mutableStateOf(1.0f) }
 
     Box(
         modifier = modifier
@@ -101,6 +110,7 @@ fun SimulatedLiveMap(
                     offsetY += dragAmount.y
                 }
             }
+            .testTag("simulated_live_map_box")
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val width = size.width
@@ -111,12 +121,12 @@ fun SimulatedLiveMap(
 
             // 1. Draw stylized streets (grid-based and radial roads to represent Islamabad)
             val streetColor = Color(0xFFFFFFFF)
-            val streetWidth = 14f
-            val highwayWidth = 22f
+            val streetWidth = 14f * zoomScale
+            val highwayWidth = 22f * zoomScale
 
             // F-Sector grid rows
             for (i in -4..4) {
-                val y = center.y + i * 150f
+                val y = center.y + i * 150f * zoomScale
                 drawLine(
                     color = streetColor,
                     start = Offset(0f, y),
@@ -126,7 +136,7 @@ fun SimulatedLiveMap(
             }
             // Columns
             for (i in -4..4) {
-                val x = center.x + i * 180f
+                val x = center.x + i * 180f * zoomScale
                 drawLine(
                     color = streetColor,
                     start = Offset(x, 0f),
@@ -138,15 +148,15 @@ fun SimulatedLiveMap(
             // Diagonal Expressways
             drawLine(
                 color = Color(0xFFD0DCE5),
-                start = Offset(center.x - 800f, center.y - 600f),
-                end = Offset(center.x + 800f, center.y + 600f),
+                start = Offset(center.x - 800f * zoomScale, center.y - 600f * zoomScale),
+                end = Offset(center.x + 800f * zoomScale, center.y + 600f * zoomScale),
                 strokeWidth = highwayWidth,
                 cap = StrokeCap.Round
             )
             drawLine(
                 color = Color(0xFFD0DCE5),
-                start = Offset(center.x - 800f, center.y + 600f),
-                end = Offset(center.x + 800f, center.y - 600f),
+                start = Offset(center.x - 800f * zoomScale, center.y + 600f * zoomScale),
+                end = Offset(center.x + 800f * zoomScale, center.y - 600f * zoomScale),
                 strokeWidth = highwayWidth,
                 cap = StrokeCap.Round
             )
@@ -154,10 +164,40 @@ fun SimulatedLiveMap(
             // Draw a major blue river canal (Rawal Lake stream representation)
             drawLine(
                 color = Color(0xFFAFD6F5),
-                start = Offset(center.x - 1000f, center.y - 350f),
-                end = Offset(center.x + 1000f, center.y - 250f),
-                strokeWidth = 35f,
+                start = Offset(center.x - 1000f * zoomScale, center.y - 350f * zoomScale),
+                end = Offset(center.x + 1000f * zoomScale, center.y - 250f * zoomScale),
+                strokeWidth = 35f * zoomScale,
                 cap = StrokeCap.Round
+            )
+
+            // Draw real landmarks using native Canvas Text rendering for Islamabad details
+            val paint = android.graphics.Paint().apply {
+                color = android.graphics.Color.DKGRAY
+                textSize = 24f * zoomScale
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                textAlign = android.graphics.Paint.Align.CENTER
+                alpha = 140
+            }
+
+            drawContext.canvas.nativeCanvas.drawText(
+                "Faisal Mosque",
+                center.x - 300f * zoomScale,
+                center.y - 200f * zoomScale,
+                paint
+            )
+
+            drawContext.canvas.nativeCanvas.drawText(
+                "F-7 Markaz",
+                center.x,
+                center.y - 120f * zoomScale,
+                paint
+            )
+
+            drawContext.canvas.nativeCanvas.drawText(
+                "Rawal Lake Reserve",
+                center.x + 400f * zoomScale,
+                center.y + 350f * zoomScale,
+                paint
             )
 
             // 2. Customer Pin location (Center)
@@ -166,19 +206,19 @@ fun SimulatedLiveMap(
             // Pulse effect for customer
             drawCircle(
                 color = Color(0x33FA7D09),
-                radius = 35f + pulseScale,
+                radius = (35f + pulseScale) * zoomScale,
                 center = customerPinOffset
             )
 
             // Draw target circle
             drawCircle(
                 color = OrangePrimary,
-                radius = 12f,
+                radius = 12f * zoomScale,
                 center = customerPinOffset
             )
             drawCircle(
                 color = Color.White,
-                radius = 5f,
+                radius = 5f * zoomScale,
                 center = customerPinOffset
             )
 
@@ -189,8 +229,8 @@ fun SimulatedLiveMap(
                 val latScale = 8000f // Scaling factor for mapping
                 val lngScale = 8000f
 
-                val dy = (customerLat - workerLat) * latScale
-                val dx = (workerLng - customerLng) * lngScale
+                val dy = (customerLat - workerLat) * latScale * zoomScale
+                val dx = (workerLng - customerLng) * lngScale * zoomScale
 
                 val workerPinOffset = Offset(center.x + dx.toFloat(), center.y + dy.toFloat())
 
@@ -200,10 +240,10 @@ fun SimulatedLiveMap(
                         color = OrangePrimary,
                         start = workerPinOffset,
                         end = customerPinOffset,
-                        strokeWidth = 6f,
+                        strokeWidth = 6f * zoomScale,
                         cap = StrokeCap.Round,
                         pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                            floatArrayOf(15f, 15f), 0f
+                            floatArrayOf(15f * zoomScale, 15f * zoomScale), 0f
                         )
                     )
                 }
@@ -212,7 +252,7 @@ fun SimulatedLiveMap(
                 if (status == "ACCEPTED") {
                     drawCircle(
                         color = Color(0x331F4068),
-                        radius = 15f + pulseScale,
+                        radius = (15f + pulseScale) * zoomScale,
                         center = workerPinOffset
                     )
                 }
@@ -220,22 +260,22 @@ fun SimulatedLiveMap(
                 // Draw worker bike marker background
                 drawCircle(
                     color = Color(0xFF1F4068),
-                    radius = 20f,
+                    radius = 20f * zoomScale,
                     center = workerPinOffset
                 )
 
                 // White ring
                 drawCircle(
                     color = Color.White,
-                    radius = 16f,
+                    radius = 16f * zoomScale,
                     center = workerPinOffset,
-                    style = Stroke(width = 3f)
+                    style = Stroke(width = 3f * zoomScale)
                 )
 
                 // Bike/Mechanic center core
                 drawCircle(
                     color = Color(0xFFFF9F1C),
-                    radius = 8f,
+                    radius = 8f * zoomScale,
                     center = workerPinOffset
                 )
             }
@@ -264,21 +304,61 @@ fun SimulatedLiveMap(
             )
         }
 
-        // UI Recenter Controls
+        // UI Recenter and Zoom Controls
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(12.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Zoom In button
             IconButton(
                 onClick = {
-                    offsetX = 0f
-                    offsetY = 0f
+                    if (zoomScale < 3.0f) zoomScale += 0.25f
                 },
                 modifier = Modifier
                     .clip(CircleShape)
                     .background(Color.White)
                     .size(40.dp)
+                    .testTag("map_zoom_in_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Zoom In",
+                    tint = Color(0xFF1F4068)
+                )
+            }
+
+            // Zoom Out button
+            IconButton(
+                onClick = {
+                    if (zoomScale > 0.5f) zoomScale -= 0.25f
+                },
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .size(40.dp)
+                    .testTag("map_zoom_out_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Remove,
+                    contentDescription = "Zoom Out",
+                    tint = Color(0xFF1F4068)
+                )
+            }
+
+            // Recenter button
+            IconButton(
+                onClick = {
+                    offsetX = 0f
+                    offsetY = 0f
+                    zoomScale = 1.0f
+                },
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .background(Color.White)
+                    .size(40.dp)
+                    .testTag("map_recenter_button")
             ) {
                 Icon(
                     imageVector = Icons.Default.MyLocation,
@@ -329,6 +409,11 @@ fun RatingAndReviewDialog(
     var showTopUpCardForm by remember { mutableStateOf(false) }
     var topUpAmount by remember { mutableStateOf("") }
 
+    val coroutineScope = rememberCoroutineScope()
+    var stripeIsProcessing by remember { mutableStateOf(false) }
+    var stripeProcessingError by remember { mutableStateOf<String?>(null) }
+
+
     AlertDialog(
         onDismissRequest = { if (paymentProcessingPhase == 0) onDismiss() },
         properties = androidx.compose.ui.window.DialogProperties(
@@ -351,7 +436,7 @@ fun RatingAndReviewDialog(
             } else if (currentStep == 2 && !showTopUpCardForm) {
                 val canSubmit = when (selectedPaymentMethod) {
                     "CASH" -> true
-                    "CARD" -> cardNumber.length >= 16 && cardExpiry.length >= 4 && cardCvv.length >= 3 && cardName.isNotBlank()
+                    "CARD" -> cardNumber.replace(" ", "").length >= 15 && cardExpiry.length >= 4 && cardCvv.length >= 3 && cardName.isNotBlank()
                     "EASYPAISA", "JAZZCASH" -> walletPhone.length >= 10
                     "WALLET" -> userBalance >= totalToPay
                     else -> false
@@ -361,6 +446,63 @@ fun RatingAndReviewDialog(
                     onClick = {
                         if (selectedPaymentMethod == "CASH") {
                             onConfirm(rating, reviewText, tipAmount, "CASH")
+                        } else if (selectedPaymentMethod == "CARD") {
+                            currentStep = 3
+                            paymentProcessingPhase = 1
+                            stripeIsProcessing = true
+                            stripeProcessingError = null
+                            
+                            val expiryParts = cardExpiry.split("/")
+                            val expMonth = expiryParts.getOrNull(0)?.trim() ?: "12"
+                            val expYear = expiryParts.getOrNull(1)?.trim() ?: "28"
+                            
+                            coroutineScope.launch {
+                                Log.d("StripePayment", "Tokenizing card expMonth: $expMonth, expYear: $expYear")
+                                val tokenResult = StripeClient.createCardToken(
+                                    cardNumber = cardNumber,
+                                    expMonth = expMonth,
+                                    expYear = expYear,
+                                    cvc = cardCvv,
+                                    name = cardName
+                                )
+                                
+                                when (tokenResult) {
+                                    is StripeTokenResult.Success -> {
+                                        Log.d("StripePayment", "Stripe Token generated: ${tokenResult.tokenId}")
+                                        if (StripeClient.isSandboxMode()) {
+                                            // Simulated 3D Secure
+                                            paymentProcessingPhase = 2
+                                            showOtpToast = true
+                                            stripeIsProcessing = false
+                                        } else {
+                                            // Real API Mode: process payment directly!
+                                            Log.d("StripePayment", "Stripe in Real mode. Charging...")
+                                            val payResult = StripeClient.processPayment(
+                                                amountPkr = totalToPay,
+                                                token = tokenResult.tokenId,
+                                                description = "Hazir Service Payment - Booking"
+                                            )
+                                            when (payResult) {
+                                                is StripePaymentResult.Success -> {
+                                                    Log.d("StripePayment", "Stripe Payment Success: ${payResult.paymentIntentId}")
+                                                    paymentProcessingPhase = 3
+                                                    stripeIsProcessing = false
+                                                }
+                                                is StripePaymentResult.Failure -> {
+                                                    Log.e("StripePayment", "Stripe Payment Failed: ${payResult.errorMessage}")
+                                                    stripeProcessingError = payResult.errorMessage
+                                                    stripeIsProcessing = false
+                                                }
+                                            }
+                                        }
+                                    }
+                                    is StripeTokenResult.Failure -> {
+                                        Log.e("StripePayment", "Stripe Tokenization Failed: ${tokenResult.errorMessage}")
+                                        stripeProcessingError = tokenResult.errorMessage
+                                        stripeIsProcessing = false
+                                    }
+                                }
+                            }
                         } else {
                             currentStep = 3
                             paymentProcessingPhase = 1
@@ -372,10 +514,10 @@ fun RatingAndReviewDialog(
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                    enabled = canSubmit
+                    enabled = canSubmit && !stripeIsProcessing
                 ) {
                     Text(
-                        text = if (selectedPaymentMethod == "CASH") "Confirm Direct Cash" else "Pay PKR ${String.format("%.0f", totalToPay)}",
+                        text = if (selectedPaymentMethod == "CASH") "Confirm Direct Cash" else if (stripeIsProcessing) "Processing..." else "Pay PKR ${String.format("%.0f", totalToPay)}",
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -607,7 +749,7 @@ fun RatingAndReviewDialog(
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 listOf(
-                                    Triple("CARD", "Credit/Debit Card", Icons.Default.CreditCard),
+                                    Triple("CARD", "Stripe Credit/Debit Card", Icons.Default.CreditCard),
                                     Triple("WALLET", "Hazir Wallet (Bal: PKR $userBalance)", Icons.Default.AccountBalanceWallet),
                                     Triple("EASYPAISA", "EasyPaisa Wallet", Icons.Default.AccountBalance),
                                     Triple("JAZZCASH", "JazzCash Wallet", Icons.Default.AccountBalance),
@@ -655,10 +797,33 @@ fun RatingAndReviewDialog(
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF0F172A), modifier = Modifier.size(14.dp))
-                                            Text("Secure Card Checkout", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                                            Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF6366F1), modifier = Modifier.size(14.dp))
+                                            Text("Stripe Secure Payment", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF6366F1))
+                                            Spacer(modifier = Modifier.weight(1f))
+                                            if (StripeClient.isSandboxMode()) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(Color(0xFFFFFBEB))
+                                                        .border(0.5.dp, Color(0xFFF59E0B), RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text("Sandbox Mode", fontSize = 8.sp, color = Color(0xFFD97706), fontWeight = FontWeight.Bold)
+                                                }
+                                            } else {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(Color(0xFFECFDF5))
+                                                        .border(0.5.dp, Color(0xFF10B981), RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text("Live Mode", fontSize = 8.sp, color = Color(0xFF059669), fontWeight = FontWeight.Bold)
+                                                }
+                                            }
                                         }
 
                                         OutlinedTextField(
@@ -670,6 +835,7 @@ fun RatingAndReviewDialog(
                                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary)
                                         )
 
+                                        val isCardValid = cardNumber.isEmpty() || StripeClient.validateCardNumber(cardNumber)
                                         OutlinedTextField(
                                             value = cardNumber,
                                             onValueChange = { if (it.length <= 16 && it.all { char -> char.isDigit() }) cardNumber = it },
@@ -677,8 +843,12 @@ fun RatingAndReviewDialog(
                                             placeholder = { Text("4111 2222 3333 4444") },
                                             modifier = Modifier.fillMaxWidth(),
                                             singleLine = true,
+                                            isError = !isCardValid,
                                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = OrangePrimary)
                                         )
+                                        if (!isCardValid) {
+                                            Text("Invalid card format (Luhn check failed)", color = Color.Red, fontSize = 9.sp)
+                                        }
 
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             OutlinedTextField(
@@ -786,15 +956,50 @@ fun RatingAndReviewDialog(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            if (paymentProcessingPhase == 1) {
+                            if (stripeProcessingError != null) {
+                                Icon(Icons.Default.Error, contentDescription = null, tint = Color.Red, modifier = Modifier.size(44.dp))
+                                Text("Payment Failed", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.Red)
+                                Text(
+                                    text = stripeProcessingError ?: "An unknown error occurred.",
+                                    fontSize = 11.sp,
+                                    color = Color.DarkGray,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp)
+                                )
+                                Button(
+                                    onClick = {
+                                        stripeProcessingError = null
+                                        currentStep = 2
+                                        paymentProcessingPhase = 0
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary)
+                                ) {
+                                    Text("Go Back & Retry", fontWeight = FontWeight.Bold)
+                                }
+                            } else if (paymentProcessingPhase == 1) {
                                 CircularProgressIndicator(color = OrangePrimary, modifier = Modifier.size(44.dp))
-                                Text("Contacting payment server...", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                                Text("Initializing secure 256-bit handshake with bank partner", fontSize = 10.sp, color = Color.LightGray)
+                                Text(
+                                    text = if (selectedPaymentMethod == "CARD") "Contacting Stripe Server..." else "Contacting payment server...",
+                                    fontSize = 12.sp,
+                                    color = Color.Gray,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (selectedPaymentMethod == "CARD") "Executing secure PCI-compliant card token handshake" else "Initializing secure 256-bit handshake with bank partner",
+                                    fontSize = 10.sp,
+                                    color = Color.LightGray,
+                                    textAlign = TextAlign.Center
+                                )
                             } else if (paymentProcessingPhase == 2) {
                                 Icon(Icons.Default.Security, contentDescription = null, tint = Color(0xFF1E3A8A), modifier = Modifier.size(44.dp))
-                                Text("Two-Factor 3D Secure verification", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
                                 Text(
-                                    text = "We have simulated a secure message token for this payment. Please enter simulated code: '$simulatedOtp'",
+                                    text = if (selectedPaymentMethod == "CARD") "Stripe 3D-Secure Verification" else "Two-Factor 3D Secure verification",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1E3A8A)
+                                )
+                                Text(
+                                    text = "We have simulated a secure Stripe message token for this payment. Please enter simulated code: '$simulatedOtp'",
                                     fontSize = 11.sp,
                                     color = Color.DarkGray,
                                     textAlign = TextAlign.Center,
@@ -814,19 +1019,50 @@ fun RatingAndReviewDialog(
                                 Button(
                                     onClick = {
                                         if (otpCode == simulatedOtp) {
-                                            paymentProcessingPhase = 3
+                                            paymentProcessingPhase = 1 // Show loader while completing the sandbox payment
+                                            stripeIsProcessing = true
+                                            coroutineScope.launch {
+                                                Log.d("StripePayment", "Processing Sandbox charge of PKR $totalToPay...")
+                                                val payResult = StripeClient.processPayment(
+                                                    amountPkr = totalToPay,
+                                                    token = "tok_sandbox_${System.currentTimeMillis()}",
+                                                    description = "Hazir Service Payment - Booking"
+                                                )
+                                                when (payResult) {
+                                                    is StripePaymentResult.Success -> {
+                                                        Log.d("StripePayment", "Sandbox Payment succeeded!")
+                                                        paymentProcessingPhase = 3
+                                                        stripeIsProcessing = false
+                                                    }
+                                                    is StripePaymentResult.Failure -> {
+                                                        Log.e("StripePayment", "Sandbox Payment failed: ${payResult.errorMessage}")
+                                                        stripeProcessingError = payResult.errorMessage
+                                                        stripeIsProcessing = false
+                                                    }
+                                                }
+                                            }
                                         }
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
                                     modifier = Modifier.fillMaxWidth(0.8f).height(42.dp),
-                                    enabled = otpCode == simulatedOtp
+                                    enabled = otpCode == simulatedOtp && !stripeIsProcessing
                                 ) {
                                     Text("Authorize Transaction", fontWeight = FontWeight.Bold)
                                 }
                             } else if (paymentProcessingPhase == 3) {
                                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(64.dp))
-                                Text("Payment Authorized!", fontSize = 16.sp, fontWeight = FontWeight.Black, color = Color(0xFF2E7D32))
-                                Text("Transaction token generated successfully.", fontSize = 11.sp, color = Color.Gray)
+                                Text(
+                                    text = if (selectedPaymentMethod == "CARD") "Stripe Charge Succeeded!" else "Payment Authorized!",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFF2E7D32)
+                                )
+                                Text(
+                                    text = if (selectedPaymentMethod == "CARD") "Secure Stripe PaymentIntent succeeded successfully." else "Transaction token generated successfully.",
+                                    fontSize = 11.sp,
+                                    color = Color.Gray,
+                                    textAlign = TextAlign.Center
+                                )
 
                                 Button(
                                     onClick = {

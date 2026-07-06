@@ -15,6 +15,7 @@ class HazirRepositoryImpl(private val db: HazirDatabase) : HazirRepository {
     private val bookingDao = db.bookingDao()
     private val chatDao = db.chatDao()
     private val walletDao = db.walletDao()
+    private val savedAddressDao = db.savedAddressDao()
 
     // ==========================================
     // USER REPOSITORY OPERATIONS
@@ -159,5 +160,31 @@ class HazirRepositoryImpl(private val db: HazirDatabase) : HazirRepository {
                 description = "Platform Commission from Job: $description"
             )
         )
+    }
+
+    // ==========================================
+    // SAVED ADDRESS REPOSITORY OPERATIONS
+    // ==========================================
+    override fun getSavedAddressesFlow(userId: String): Flow<List<SavedAddress>> =
+        savedAddressDao.getSavedAddressesFlow(userId).map { list -> list.map { it.toDomain() } }
+
+    override suspend fun getSavedAddresses(userId: String): List<SavedAddress> = withContext(Dispatchers.IO) {
+        savedAddressDao.getSavedAddresses(userId).map { it.toDomain() }
+    }
+
+    override suspend fun insertSavedAddress(address: SavedAddress): Int = withContext(Dispatchers.IO) {
+        savedAddressDao.insertAddress(address.toEntity()).toInt()
+    }
+
+    override suspend fun updateSavedAddress(address: SavedAddress) = withContext(Dispatchers.IO) {
+        savedAddressDao.updateAddress(address.toEntity())
+    }
+
+    override suspend fun deleteSavedAddress(address: SavedAddress) = withContext(Dispatchers.IO) {
+        savedAddressDao.deleteAddress(address.toEntity())
+    }
+
+    override suspend fun setDefaultSavedAddress(userId: String, addressId: Int) = withContext(Dispatchers.IO) {
+        savedAddressDao.setDefaultAddress(userId, addressId)
     }
 }

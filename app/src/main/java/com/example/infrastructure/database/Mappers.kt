@@ -160,3 +160,26 @@ fun WalletTransaction.toEntity(): WalletTransactionEntity = WalletTransactionEnt
     description = description,
     timestamp = timestamp
 )
+
+// ==========================================
+// SAVED ADDRESS MAPPER
+// ==========================================
+fun SavedAddressEntity.toDomain(): SavedAddress = SavedAddress(
+    id = id,
+    userId = userId,
+    label = label,
+    address = address,
+    latitude = latitude,
+    longitude = longitude,
+    isDefault = isDefault
+)
+
+fun SavedAddress.toEntity(): SavedAddressEntity = SavedAddressEntity(
+    id = id,
+    userId = userId,
+    label = label,
+    address = address,
+    latitude = latitude,
+    longitude = longitude,
+    isDefault = isDefault
+)

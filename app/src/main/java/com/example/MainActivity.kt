@@ -22,6 +22,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         com.example.infrastructure.notification.NotificationManager.init(applicationContext)
+        com.example.infrastructure.notification.NotificationProvider.init(applicationContext)
         setContent {
             MyApplicationTheme {
                 val viewModel: HazirViewModel = viewModel()

@@ -107,3 +107,26 @@ class TransferFundsUseCase(private val repository: HazirRepository) {
     suspend operator fun invoke(senderId: String, receiverId: String, amount: Double, description: String) =
         repository.transferFunds(senderId, receiverId, amount, description)
 }
+
+// ==========================================
+// SAVED ADDRESS USE CASES
+// ==========================================
+class GetSavedAddressesUseCase(private val repository: HazirRepository) {
+    operator fun invoke(userId: String): Flow<List<SavedAddress>> = repository.getSavedAddressesFlow(userId)
+}
+
+class InsertSavedAddressUseCase(private val repository: HazirRepository) {
+    suspend operator fun invoke(address: SavedAddress): Int = repository.insertSavedAddress(address)
+}
+
+class UpdateSavedAddressUseCase(private val repository: HazirRepository) {
+    suspend operator fun invoke(address: SavedAddress) = repository.updateSavedAddress(address)
+}
+
+class DeleteSavedAddressUseCase(private val repository: HazirRepository) {
+    suspend operator fun invoke(address: SavedAddress) = repository.deleteSavedAddress(address)
+}
+
+class SetDefaultSavedAddressUseCase(private val repository: HazirRepository) {
+    suspend operator fun invoke(userId: String, addressId: Int) = repository.setDefaultSavedAddress(userId, addressId)
+}

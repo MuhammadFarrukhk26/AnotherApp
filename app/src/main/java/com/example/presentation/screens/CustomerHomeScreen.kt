@@ -1,6 +1,7 @@
 package com.example.presentation.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -19,6 +20,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,7 +30,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.example.R
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,6 +49,7 @@ import com.example.domain.model.ChatMessage
 import com.example.domain.model.ServiceCategory
 import com.example.domain.model.User
 import com.example.domain.model.AiChatMessage
+import com.example.domain.model.SavedAddress
 import com.example.presentation.theme.NavySecondary
 import com.example.presentation.theme.OrangeLight
 import com.example.presentation.theme.OrangePrimary
@@ -68,10 +78,14 @@ fun CustomerHomeScreen(
     val bookings by viewModel.customerBookings.collectAsStateWithLifecycle()
     val aiMessages by viewModel.aiChatHistory.collectAsStateWithLifecycle()
     val aiLoading by viewModel.aiLoading.collectAsStateWithLifecycle()
+    val savedAddresses by viewModel.savedAddresses.collectAsStateWithLifecycle()
 
     var activeTab by remember { mutableStateOf(0) } // 0: Home, 1: AI Advisor, 2: Bookings, 3: Wallet
     var showBookingSheetCategory by remember { mutableStateOf<ServiceCategory?>(null) }
+    var initialBookingDescription by remember { mutableStateOf("") }
+    var initialBookingEstimatedDuration by remember { mutableStateOf(2.0) }
     var showRoleMenu by remember { mutableStateOf(false) }
+    var showSavedAddressesDialog by remember { mutableStateOf(false) }
 
     val activeBooking = bookings.firstOrNull { it.status != "COMPLETED" && it.status != "CANCELLED" }
 
@@ -176,6 +190,14 @@ fun CustomerHomeScreen(
                             onDismissRequest = { showUserMenu = false }
                         ) {
                             DropdownMenuItem(
+                                text = { Text("Saved Addresses", color = NavySecondary) },
+                                onClick = {
+                                    showUserMenu = false
+                                    showSavedAddressesDialog = true
+                                },
+                                leadingIcon = { Icon(Icons.Default.Place, contentDescription = "Saved Addresses", tint = OrangePrimary) }
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Log Out Account", color = Color.Red) },
                                 onClick = {
                                     showUserMenu = false
@@ -255,7 +277,12 @@ fun CustomerHomeScreen(
                     userProfile = userProfile,
                     onCategoryClick = { showBookingSheetCategory = it },
                     onNavigateToAi = { activeTab = 1 },
-                    onTrackBooking = onTrackBooking
+                    onTrackBooking = onTrackBooking,
+                    onBookWithParams = { cat, desc, duration ->
+                        initialBookingDescription = desc
+                        initialBookingEstimatedDuration = duration
+                        showBookingSheetCategory = cat
+                    }
                 )
                 1 -> AiAdvisorTabContent(
                     messages = aiMessages,
@@ -269,10 +296,16 @@ fun CustomerHomeScreen(
                 )
                 2 -> BookingsHistoryTabContent(
                     bookings = bookings,
+                    categories = categories,
+                    onBookCategory = { showBookingSheetCategory = it },
                     onTrackBooking = onTrackBooking,
                     onRateBooking = { id, rating, review ->
                         viewModel.submitPostServiceRating(id, rating, review)
-                    }
+                    },
+                    onRefresh = { onComplete ->
+                        viewModel.refreshBookings(onComplete)
+                    },
+                    onFindProfessional = { activeTab = 0 }
                 )
                 3 -> WalletTabContent(
                     viewModel = viewModel,
@@ -285,7 +318,17 @@ fun CustomerHomeScreen(
                 BookingFormDialog(
                     category = category,
                     userBalance = userProfile?.walletBalance ?: 5000.0,
-                    onDismiss = { showBookingSheetCategory = null },
+                    initialDescription = initialBookingDescription,
+                    initialEstimatedDuration = initialBookingEstimatedDuration,
+                    savedAddresses = savedAddresses,
+                    onSaveAddress = { label, addressText ->
+                        viewModel.saveAddress(label, addressText, false)
+                    },
+                    onDismiss = {
+                        showBookingSheetCategory = null
+                        initialBookingDescription = ""
+                        initialBookingEstimatedDuration = 2.0
+                    },
                     onConfirmBooking = { address, description, price, date, time, paymentMethod ->
                         viewModel.requestBooking(
                             categoryId = category.id,
@@ -298,8 +341,26 @@ fun CustomerHomeScreen(
                             paymentMethod = paymentMethod
                         )
                         showBookingSheetCategory = null
+                        initialBookingDescription = ""
+                        initialBookingEstimatedDuration = 2.0
                         // Switch immediately to Booking List tab so they see progress
                         activeTab = 2
+                    }
+                )
+            }
+
+            if (showSavedAddressesDialog) {
+                SavedAddressesDialog(
+                    savedAddresses = savedAddresses,
+                    onDismiss = { showSavedAddressesDialog = false },
+                    onSaveAddress = { label, addressText, isDefault ->
+                        viewModel.saveAddress(label, addressText, isDefault)
+                    },
+                    onDeleteAddress = { addr ->
+                        viewModel.deleteAddress(addr)
+                    },
+                    onSetDefaultAddress = { id ->
+                        viewModel.setAsDefaultAddress(id)
                     }
                 )
             }
@@ -317,7 +378,8 @@ fun HomeTabContent(
     userProfile: User?,
     onCategoryClick: (ServiceCategory) -> Unit,
     onNavigateToAi: () -> Unit,
-    onTrackBooking: (Int) -> Unit
+    onTrackBooking: (Int) -> Unit,
+    onBookWithParams: (ServiceCategory, String, Double) -> Unit
 ) {
     var selectedFilter by remember { mutableStateOf("All") }
     val filterOptions = remember(categories) {
@@ -624,6 +686,12 @@ fun HomeTabContent(
                 )
             }
         }
+
+        // Beautiful Interactive Cost Calculator Card
+        InteractiveCostCalculatorCard(
+            categories = categories,
+            onBookWithParams = onBookWithParams
+        )
     }
 }
 }
@@ -786,14 +854,20 @@ fun AiAdvisorTabContent(
 // ==========================================
 // TAB 3: BOOKINGS HISTORY TAB
 // ==========================================
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BookingsHistoryTabContent(
     bookings: List<Booking>,
+    categories: List<ServiceCategory>,
+    onBookCategory: (ServiceCategory) -> Unit,
     onTrackBooking: (Int) -> Unit,
-    onRateBooking: (Int, Int, String) -> Unit
+    onRateBooking: (Int, Int, String) -> Unit,
+    onRefresh: (onComplete: () -> Unit) -> Unit,
+    onFindProfessional: () -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(0) } // 0: Active, 1: Past, 2: Insights
     var ratingBooking by remember { mutableStateOf<Booking?>(null) }
+    val context = LocalContext.current
 
     if (ratingBooking != null) {
         PostServiceRatingDialog(
@@ -813,6 +887,18 @@ fun BookingsHistoryTabContent(
     val pastBookings = bookings.filter { it.status == "COMPLETED" || it.status == "CANCELLED" }
     val currentBookingsList = if (selectedTab == 0) pendingBookings else pastBookings
 
+    var searchQuery by remember { mutableStateOf("") }
+    val filteredBookingsList = remember(currentBookingsList, searchQuery) {
+        if (searchQuery.isBlank()) {
+            currentBookingsList
+        } else {
+            currentBookingsList.filter { booking ->
+                booking.categoryName.contains(searchQuery, ignoreCase = true) ||
+                        (booking.workerName?.contains(searchQuery, ignoreCase = true) == true)
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -826,6 +912,329 @@ fun BookingsHistoryTabContent(
             fontSize = 20.sp,
             color = NavySecondary
         )
+
+        // Service Cost Estimator Collapsible Card
+        var isEstimatorExpanded by remember { mutableStateOf(false) }
+        var selectedEstimatorCategory by remember { mutableStateOf<ServiceCategory?>(categories.firstOrNull()) }
+        var expectedHours by remember { mutableStateOf(2.0f) }
+        var complexityFactor by remember { mutableStateOf(1.0) } // 1.0 (Standard), 1.4 (Heavy/Urgent)
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize()
+                .testTag("service_cost_estimator_card"),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isEstimatorExpanded) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+            ),
+            border = BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.2f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isEstimatorExpanded = !isEstimatorExpanded }
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Collapsed header / Title
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Calculate,
+                            contentDescription = "Cost Estimator Icon",
+                            tint = OrangePrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "Service Cost Estimator",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = NavySecondary
+                        )
+                        if (!isEstimatorExpanded) {
+                            Text(
+                                text = "• Check rates before booking",
+                                fontSize = 11.sp,
+                                color = Color.Gray,
+                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = if (isEstimatorExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (isEstimatorExpanded) "Collapse" else "Expand",
+                        tint = OrangePrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                if (isEstimatorExpanded) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                    // 1. Category Selection Flow
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Select Service Category:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NavySecondary
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            categories.forEach { category ->
+                                val isSelected = selectedEstimatorCategory?.id == category.id
+                                val backgroundColor = if (isSelected) OrangePrimary else OrangePrimary.copy(alpha = 0.05f)
+                                val textColor = if (isSelected) Color.White else NavySecondary
+                                val borderStroke = if (isSelected) null else BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.15f))
+
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(backgroundColor)
+                                        .then(if (borderStroke != null) Modifier.border(borderStroke, RoundedCornerShape(16.dp)) else Modifier)
+                                        .clickable { selectedEstimatorCategory = category }
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                        .testTag("estimator_category_chip_${category.id}"),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = getCategoryIcon(category.iconName),
+                                        contentDescription = null,
+                                        tint = if (isSelected) Color.White else OrangePrimary,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = category.name,
+                                        color = textColor,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. Slider for Hours
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Estimated Service Duration:",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NavySecondary
+                            )
+                            Text(
+                                text = "${expectedHours.toInt()} hr${if (expectedHours.toInt() > 1) "s" else ""}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                color = OrangePrimary
+                            )
+                        }
+
+                        Slider(
+                            value = expectedHours,
+                            onValueChange = { expectedHours = it },
+                            valueRange = 1.0f..8.0f,
+                            steps = 6,
+                            colors = SliderDefaults.colors(
+                                thumbColor = OrangePrimary,
+                                activeTrackColor = OrangePrimary,
+                                inactiveTrackColor = Color.LightGray.copy(alpha = 0.4f)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(24.dp)
+                                .testTag("estimator_duration_slider")
+                        )
+                    }
+
+                    // 3. Complexity Selector
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Complexity & Urgency Level:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = NavySecondary
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val options = listOf(
+                                Triple("Express", 0.9, "⚡ Minor task"),
+                                Triple("Standard", 1.0, "🔧 Standard repair"),
+                                Triple("Heavy Work", 1.4, "🛠️ Overhaul / Emergency")
+                            )
+                            options.forEach { (label, multiplier, desc) ->
+                                val isSelected = complexityFactor == multiplier
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) OrangePrimary.copy(alpha = 0.1f) else Color(0xFFF1F5F9))
+                                        .border(
+                                            width = if (isSelected) 1.5.dp else 1.dp,
+                                            color = if (isSelected) OrangePrimary else Color.Transparent,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { complexityFactor = multiplier }
+                                        .padding(8.dp)
+                                        .testTag("estimator_complexity_${label.lowercase()}"),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = label,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) OrangePrimary else NavySecondary
+                                        )
+                                        Text(
+                                            text = desc,
+                                            fontSize = 8.sp,
+                                            color = Color.Gray,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                    // 4. Cost Range Summary Section
+                    selectedEstimatorCategory?.let { category ->
+                        val basePrice = category.basePrice
+                        val estimatedBase = basePrice * expectedHours * complexityFactor
+                        val minRange = (estimatedBase * 0.9).toInt()
+                        val maxRange = (estimatedBase * 1.35).toInt()
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(OrangePrimary.copy(alpha = 0.05f))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Estimated Price Range:",
+                                    fontSize = 11.sp,
+                                    color = Color.Gray
+                                )
+                                Text(
+                                    text = "PKR $minRange - $maxRange",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = NavySecondary
+                                )
+                                Text(
+                                    text = "Includes diagnostic + labor rate (PKR ${basePrice.toInt()}/hr)",
+                                    fontSize = 9.sp,
+                                    color = Color.Gray
+                                )
+                            }
+
+                            Button(
+                                onClick = {
+                                    onBookCategory(category)
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                                modifier = Modifier
+                                    .testTag("estimator_proceed_booking_button")
+                            ) {
+                                Text(
+                                    text = "Proceed to Book",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                    contentDescription = "Proceed to Book",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Search Bar for filtering active & past bookings
+        if (selectedTab != 2) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("bookings_search_bar"),
+                placeholder = {
+                    Text(
+                        text = "Search by service or professional name...",
+                        fontSize = 13.sp,
+                        color = Color.Gray
+                    )
+                },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search Icon",
+                        tint = OrangePrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(
+                            onClick = { searchQuery = "" },
+                            modifier = Modifier.testTag("clear_search_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear Search",
+                                tint = Color.Gray,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = OrangePrimary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                )
+            )
+        }
 
         // Custom Segmented Pill Tab Switcher (3-way)
         Row(
@@ -866,236 +1275,321 @@ fun BookingsHistoryTabContent(
             }
         }
 
-        if (selectedTab == 2) {
-            BookingInsightsDashboard(bookings = bookings)
-        } else if (currentBookingsList.isEmpty()) {
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(24.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                val icon = if (selectedTab == 0) Icons.Default.EventNote else Icons.Default.HistoryToggleOff
-                val title = if (selectedTab == 0) "No Active Bookings" else "No Past Bookings"
-                val description = if (selectedTab == 0) {
-                    "You have no pending or active service requests. Need something repaired? Select a category on the Home tab."
-                } else {
-                    "You have not completed any bookings yet. Your finished service history in Islamabad will appear here."
+        var isRefreshing by remember { mutableStateOf(false) }
+
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                isRefreshing = true
+                onRefresh {
+                    isRefreshing = false
+                    Toast.makeText(context, "Successfully updated bookings!", Toast.LENGTH_SHORT).show()
                 }
-
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(72.dp),
-                    tint = Color.LightGray
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    text = title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    color = NavySecondary
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = description,
-                    textAlign = TextAlign.Center,
-                    fontSize = 13.sp,
-                    color = Color.Gray,
-                    lineHeight = 18.sp
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(currentBookingsList, key = { it.id }) { booking ->
-                    val categoryIcon = getCategoryIconByCategoryId(booking.categoryId)
-                    Card(
+            },
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .testTag("bookings_pull_to_refresh")
+        ) {
+            if (selectedTab == 2) {
+                BookingInsightsDashboard(bookings = bookings)
+            } else if (currentBookingsList.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // Friendly empty state illustration
+                    Image(
+                        painter = painterResource(id = R.drawable.img_empty_bookings),
+                        contentDescription = "Empty Bookings Illustration",
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onTrackBooking(booking.id) }
-                            .testTag("booking_card_${booking.id}"),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            .size(180.dp)
+                            .padding(bottom = 16.dp)
+                    )
+
+                    val title = if (selectedTab == 0) "No Active Bookings" else "No Past Bookings"
+                    val description = if (selectedTab == 0) {
+                        "You have no pending or active service requests. Need something repaired? Select a category on the Home tab."
+                    } else {
+                        "You have not completed any bookings yet. Your finished service history in Islamabad will appear here."
+                    }
+
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = NavySecondary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = description,
+                        textAlign = TextAlign.Center,
+                        fontSize = 13.sp,
+                        color = Color.Gray,
+                        lineHeight = 18.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = onFindProfessional,
+                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth(0.8f)
+                            .height(48.dp)
+                            .testTag("find_professional_button")
                     ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Find a Professional",
+                            tint = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Find a Professional",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            } else if (filteredBookingsList.isEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "No Results Found",
+                        modifier = Modifier.size(72.dp),
+                        tint = Color.LightGray
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "No Results Found",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = NavySecondary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "We couldn't find any bookings matching \"$searchQuery\". Try checking the spelling or searching for another term.",
+                        textAlign = TextAlign.Center,
+                        fontSize = 13.sp,
+                        color = Color.Gray,
+                        lineHeight = 18.sp
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = { searchQuery = "" },
+                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth(0.6f)
+                            .height(44.dp)
+                            .testTag("clear_search_results_button")
+                    ) {
+                        Text("Clear Search", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    items(filteredBookingsList, key = { it.id }) { booking ->
+                        val categoryIcon = getCategoryIconByCategoryId(booking.categoryId)
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onTrackBooking(booking.id) }
+                                .testTag("booking_card_${booking.id}"),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
-                            // Row 1: Category Icon, Name, and StatusBadge
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(OrangePrimary.copy(alpha = 0.08f)),
-                                    contentAlignment = Alignment.Center
+                                // Row 1: Category Icon, Name, and StatusBadge
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = categoryIcon,
-                                        contentDescription = booking.categoryName,
-                                        tint = OrangePrimary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = booking.categoryName,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 15.sp,
-                                        color = NavySecondary
-                                    )
-                                    Text(
-                                        text = "Booking #${booking.id}",
-                                        fontSize = 11.sp,
-                                        color = Color.Gray
-                                    )
-                                }
-
-                                StatusBadge(booking.status)
-                            }
-
-                            // Row 2: Description
-                            Text(
-                                text = booking.description,
-                                fontSize = 13.sp,
-                                color = NavySecondary.copy(alpha = 0.8f),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                lineHeight = 18.sp
-                            )
-
-                            Divider(color = MaterialTheme.colorScheme.surfaceVariant, thickness = 1.dp)
-
-                            // Row 3: Meta info and Action Buttons
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(OrangePrimary.copy(alpha = 0.08f)),
+                                        contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.CalendarToday,
-                                            contentDescription = null,
-                                            tint = Color.Gray,
-                                            modifier = Modifier.size(12.dp)
+                                            imageVector = categoryIcon,
+                                            contentDescription = booking.categoryName,
+                                            tint = OrangePrimary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = booking.categoryName,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = NavySecondary
                                         )
                                         Text(
-                                            text = "${booking.date} • ${booking.time}",
+                                            text = "Booking #${booking.id}",
                                             fontSize = 11.sp,
                                             color = Color.Gray
                                         )
                                     }
-                                    Text(
-                                        text = "PKR ${booking.estimatedPrice}",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = OrangePrimary
-                                    )
+
+                                    StatusBadge(booking.status)
                                 }
 
-                                if (booking.status == "COMPLETED") {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        if (booking.rating != null) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                repeat(booking.rating) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Star,
-                                                        contentDescription = "Star Rating",
-                                                        tint = Color(0xFFFFB300),
-                                                        modifier = Modifier.size(14.dp)
-                                                    )
-                                                }
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Text(
-                                                    text = "${booking.rating}/5",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = NavySecondary
-                                                )
-                                            }
-                                        } else {
-                                            Button(
-                                                onClick = { ratingBooking = booking },
-                                                colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                                                modifier = Modifier
-                                                    .height(32.dp)
-                                                    .testTag("rate_booking_button_${booking.id}"),
-                                                shape = RoundedCornerShape(8.dp)
-                                            ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Star,
-                                                        contentDescription = null,
-                                                        tint = Color.White,
-                                                        modifier = Modifier.size(12.dp)
-                                                    )
-                                                    Text(
-                                                        text = "Rate Service",
-                                                        color = Color.White,
-                                                        fontSize = 11.sp,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else if (booking.status == "CANCELLED") {
-                                    Text(
-                                        text = "Cancelled",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFC62828)
-                                    )
-                                } else {
-                                    Button(
-                                        onClick = { onTrackBooking(booking.id) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary.copy(alpha = 0.08f)),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                                        modifier = Modifier
-                                            .height(32.dp)
-                                            .testTag("track_button_${booking.id}"),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
+                                // Row 2: Description
+                                Text(
+                                    text = booking.description,
+                                    fontSize = 13.sp,
+                                    color = NavySecondary.copy(alpha = 0.8f),
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    lineHeight = 18.sp
+                                )
+
+                                Divider(color = MaterialTheme.colorScheme.surfaceVariant, thickness = 1.dp)
+
+                                // Row 3: Meta info and Action Buttons
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Default.CompassCalibration,
+                                                imageVector = Icons.Default.CalendarToday,
                                                 contentDescription = null,
-                                                tint = OrangePrimary,
-                                                modifier = Modifier.size(14.dp)
+                                                tint = Color.Gray,
+                                                modifier = Modifier.size(12.dp)
                                             )
                                             Text(
-                                                text = "Track Live",
-                                                color = OrangePrimary,
+                                                text = "${booking.date} • ${booking.time}",
                                                 fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
+                                                color = Color.Gray
                                             )
+                                        }
+                                        Text(
+                                            text = "PKR ${booking.estimatedPrice}",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = OrangePrimary
+                                        )
+                                    }
+
+                                    if (booking.status == "COMPLETED") {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            if (booking.rating != null) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    repeat(booking.rating) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Star,
+                                                            contentDescription = "Star Rating",
+                                                            tint = Color(0xFFFFB300),
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "${booking.rating}/5",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = NavySecondary
+                                                    )
+                                                }
+                                            } else {
+                                                Button(
+                                                    onClick = { ratingBooking = booking },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                                    modifier = Modifier
+                                                        .height(32.dp)
+                                                        .testTag("rate_booking_button_${booking.id}"),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Star,
+                                                            contentDescription = null,
+                                                            tint = Color.White,
+                                                            modifier = Modifier.size(12.dp)
+                                                        )
+                                                        Text(
+                                                            text = "Rate Service",
+                                                            color = Color.White,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else if (booking.status == "CANCELLED") {
+                                        Text(
+                                            text = "Cancelled",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFC62828)
+                                        )
+                                    } else {
+                                        Button(
+                                            onClick = { onTrackBooking(booking.id) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary.copy(alpha = 0.08f)),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                                            modifier = Modifier
+                                                .height(32.dp)
+                                                .testTag("track_button_${booking.id}"),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.CompassCalibration,
+                                                    contentDescription = null,
+                                                    tint = OrangePrimary,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    text = "Track Live",
+                                                    color = OrangePrimary,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -1264,16 +1758,24 @@ fun WalletTabContent(
 fun BookingFormDialog(
     category: ServiceCategory,
     userBalance: Double,
+    initialDescription: String = "",
+    initialEstimatedDuration: Double = 2.0,
+    savedAddresses: List<SavedAddress> = emptyList(),
+    onSaveAddress: (String, String) -> Unit = { _, _ -> },
     onDismiss: () -> Unit,
     onConfirmBooking: (String, String, Double, String, String, String) -> Unit
 ) {
-    var address by remember { mutableStateOf("F-7 Markaz, Street 4, House 12A, Islamabad") }
-    var description by remember { mutableStateOf("") }
+    val defaultAddress = savedAddresses.find { it.isDefault } ?: savedAddresses.firstOrNull()
+    var address by remember { mutableStateOf(defaultAddress?.address ?: "F-7 Markaz, Street 4, House 12A, Islamabad") }
+    var description by remember { mutableStateOf(initialDescription) }
     var date by remember { mutableStateOf("Today, June 28") }
     var time by remember { mutableStateOf("As soon as possible") }
 
+    var saveNewAddressToProfile by remember { mutableStateOf(false) }
+    var newAddressLabel by remember { mutableStateOf("Home") }
+
     // Dynamic Price Estimation state
-    var estimatedDuration by remember { mutableStateOf(2.0) } // Default 2 hours
+    var estimatedDuration by remember { mutableStateOf(initialEstimatedDuration) } // Default initialEstimatedDuration
     val dynamicPrice = category.basePrice * estimatedDuration
 
     // Payment selection states
@@ -1316,6 +1818,10 @@ fun BookingFormDialog(
                         "CARD" -> "CARD"
                         "WALLET" -> if (walletType == "HAZIR") "WALLET" else walletType
                         else -> "CASH"
+                    }
+                    val isCurrentAddressSaved = savedAddresses.any { it.address.equals(address.trim(), ignoreCase = true) }
+                    if (saveNewAddressToProfile && !isCurrentAddressSaved) {
+                        onSaveAddress(newAddressLabel, address.trim())
                     }
                     onConfirmBooking(address, description, dynamicPrice, date, time, finalPaymentMethod)
                 },
@@ -1368,17 +1874,98 @@ fun BookingFormDialog(
                 )
 
                 // Location field
+                if (savedAddresses.isNotEmpty()) {
+                    Text("Select Saved Address", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        items(savedAddresses) { savedAddr ->
+                            val isSelected = address == savedAddr.address
+                            val icon = when (savedAddr.label.lowercase()) {
+                                "home" -> Icons.Default.Home
+                                "office" -> Icons.Default.Business
+                                else -> Icons.Default.Place
+                            }
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    address = savedAddr.address
+                                },
+                                label = { Text(savedAddr.label) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = savedAddr.label,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = if (isSelected) OrangePrimary else Color.Gray
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = OrangePrimary.copy(alpha = 0.15f),
+                                    selectedLabelColor = OrangePrimary
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = if (isSelected) OrangePrimary else Color.LightGray,
+                                    borderWidth = if (isSelected) 1.5.dp else 1.dp
+                                )
+                            )
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = address,
                     onValueChange = { address = it },
                     label = { Text("Service Address", fontSize = 12.sp) },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().testTag("booking_address_input"),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = OrangePrimary,
                         cursorColor = OrangePrimary
                     )
                 )
+
+                // Only show "save address" checkbox if the current typed address is NOT in saved addresses
+                val isCurrentAddressSaved = savedAddresses.any { it.address.equals(address.trim(), ignoreCase = true) }
+                if (!isCurrentAddressSaved && address.isNotBlank()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        Checkbox(
+                            checked = saveNewAddressToProfile,
+                            onCheckedChange = { saveNewAddressToProfile = it },
+                            colors = CheckboxDefaults.colors(checkedColor = OrangePrimary)
+                        )
+                        Column {
+                            Text("Save this address to my profile", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                            if (saveNewAddressToProfile) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.padding(top = 4.dp)
+                                ) {
+                                    Text("Label:", fontSize = 11.sp, color = Color.Gray)
+                                    listOf("Home", "Office", "Apartment", "Other").forEach { lbl ->
+                                        val isLabelSelected = newAddressLabel == lbl
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(if (isLabelSelected) OrangePrimary.copy(alpha = 0.15f) else Color.Transparent)
+                                                .border(1.dp, if (isLabelSelected) OrangePrimary else Color.Gray, RoundedCornerShape(8.dp))
+                                                .clickable { newAddressLabel = lbl }
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Text(lbl, fontSize = 10.sp, color = if (isLabelSelected) OrangePrimary else Color.DarkGray)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // Date & Time pickers (Mocked/Pre-filled)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2613,4 +3200,450 @@ fun getPastSixMonthsData(completedBookings: List<Booking>): List<MonthData> {
     }
     
     return monthsData
+}
+
+// ==========================================
+// INTERACTIVE SMART COST ESTIMATOR & CALCULATOR
+// ==========================================
+@Composable
+fun InteractiveCostCalculatorCard(
+    categories: List<ServiceCategory>,
+    onBookWithParams: (ServiceCategory, String, Double) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var selectedCategory by remember { mutableStateOf(categories.firstOrNull()) }
+    
+    // Complexity Parameters
+    var scopeFactor by remember { mutableStateOf(1.0) } // 1.0 (Quick Fix), 1.5 (Standard), 2.2 (Deep Work)
+    var scopeLabel by remember { mutableStateOf("Quick Fix") }
+    
+    var materialCost by remember { mutableStateOf(0.0) } // 0.0 (Labor Only), 500.0 (Basic Parts), 1500.0 (Premium)
+    var materialLabel by remember { mutableStateOf("Labor Only") }
+    
+    var urgencyCost by remember { mutableStateOf(0.0) } // 0.0 (Standard), 400.0 (Same-Day Emergency)
+    var urgencyLabel by remember { mutableStateOf("Standard") }
+    
+    var quantity by remember { mutableStateOf(1) } // Scale factor
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("interactive_cost_calculator_card"),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.4f)),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Header
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(OrangePrimary.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Calculate,
+                        contentDescription = "Cost Calculator",
+                        tint = OrangePrimary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Column {
+                    Text(
+                        text = "Smart Price Calculator",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NavySecondary
+                    )
+                    Text(
+                        text = "Customize parameters for a live estimate",
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
+
+            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.LightGray.copy(alpha = 0.3f)))
+
+            // 1. Category Selection Row
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Select Service Category:",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = NavySecondary
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    categories.forEach { category ->
+                        val isSelected = selectedCategory?.id == category.id
+                        val backgroundColor = if (isSelected) OrangePrimary else OrangePrimary.copy(alpha = 0.05f)
+                        val textColor = if (isSelected) Color.White else NavySecondary
+                        val borderStroke = if (isSelected) null else BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.15f))
+
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(backgroundColor)
+                                .then(if (borderStroke != null) Modifier.border(borderStroke, RoundedCornerShape(20.dp)) else Modifier)
+                                .clickable { selectedCategory = category }
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .testTag("calc_category_chip_${category.id}"),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = getCategoryIcon(category.iconName),
+                                contentDescription = null,
+                                tint = if (isSelected) Color.White else OrangePrimary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = category.name,
+                                color = textColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. Job Scope Selection (Segmented-style Chips)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "Job Complexity & Scope:",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = NavySecondary
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val scopeOptions = listOf(
+                        Triple("Quick Fix", 1.0, "⚡ Minor repair / touch-up"),
+                        Triple("Standard", 1.5, "🔧 Common troubleshooting"),
+                        Triple("Deep Work", 2.2, "🛠️ Heavy / custom overhaul")
+                    )
+                    scopeOptions.forEach { (label, factor, desc) ->
+                        val isSelected = scopeLabel == label
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isSelected) OrangePrimary.copy(alpha = 0.1f) else Color(0xFFF5F5F5))
+                                .border(
+                                    width = if (isSelected) 1.5.dp else 1.dp,
+                                    color = if (isSelected) OrangePrimary else Color.Transparent,
+                                    shape = RoundedCornerShape(10.dp)
+                                )
+                                .clickable {
+                                    scopeLabel = label
+                                    scopeFactor = factor
+                                }
+                                .padding(vertical = 8.dp, horizontal = 4.dp)
+                                .testTag("calc_scope_chip_$label"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) OrangePrimary else Color.DarkGray
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "x$factor Rate",
+                                    fontSize = 9.sp,
+                                    color = if (isSelected) OrangePrimary.copy(alpha = 0.8f) else Color.Gray,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Materials and 4. Urgency in a split Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Materials Column
+                Column(
+                    modifier = Modifier.weight(1.5f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Materials:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NavySecondary
+                    )
+                    
+                    val materials = listOf(
+                        Triple("Labor Only", 0.0, "PKR 0"),
+                        Triple("Basic Parts", 500.0, "+500"),
+                        Triple("Premium Parts", 1500.0, "+1500")
+                    )
+
+                    materials.forEach { (label, cost, costLabel) ->
+                        val isSelected = materialLabel == label
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) OrangePrimary.copy(alpha = 0.08f) else Color(0xFFF8F9FA))
+                                .border(1.dp, if (isSelected) OrangePrimary.copy(alpha = 0.3f) else Color.LightGray.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    materialLabel = label
+                                    materialCost = cost
+                                }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                                .testTag("calc_material_$label"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 10.sp,
+                                color = if (isSelected) OrangePrimary else Color.DarkGray,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                            Text(
+                                text = costLabel,
+                                fontSize = 9.sp,
+                                color = if (isSelected) OrangePrimary else Color.Gray,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                }
+
+                // Urgency Column
+                Column(
+                    modifier = Modifier.weight(1.5f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Urgency:",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NavySecondary
+                    )
+                    
+                    val urgencies = listOf(
+                        Triple("Standard", 0.0, "PKR 0"),
+                        Triple("Emergency", 400.0, "+400")
+                    )
+
+                    urgencies.forEach { (label, cost, costLabel) ->
+                        val isSelected = urgencyLabel == label
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) OrangePrimary.copy(alpha = 0.08f) else Color(0xFFF8F9FA))
+                                .border(1.dp, if (isSelected) OrangePrimary.copy(alpha = 0.3f) else Color.LightGray.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                .clickable {
+                                    urgencyLabel = label
+                                    urgencyCost = cost
+                                }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                                .testTag("calc_urgency_$label"),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 10.sp,
+                                color = if (isSelected) OrangePrimary else Color.DarkGray,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                text = costLabel,
+                                fontSize = 9.sp,
+                                color = if (isSelected) OrangePrimary else Color.Gray,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                }
+            }
+
+            // 5. Job Scale (Quantity / Points counter)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFF8F9FA))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Job Scale (Units):",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NavySecondary
+                    )
+                    Text(
+                        text = "Quantity of fixtures/rooms",
+                        fontSize = 9.sp,
+                        color = Color.Gray
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    IconButton(
+                        onClick = { if (quantity > 1) quantity-- },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(Color.White, CircleShape)
+                            .border(1.dp, Color.LightGray.copy(alpha = 0.5f), CircleShape)
+                            .testTag("calc_quantity_decrement")
+                    ) {
+                        Text("−", fontSize = 18.sp, fontWeight = FontWeight.Black, color = NavySecondary)
+                    }
+
+                    Text(
+                        text = quantity.toString(),
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = NavySecondary,
+                        modifier = Modifier.widthIn(min = 16.dp),
+                        textAlign = TextAlign.Center
+                    )
+
+                    IconButton(
+                        onClick = { if (quantity < 10) quantity++ },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(Color.White, CircleShape)
+                            .border(1.dp, Color.LightGray.copy(alpha = 0.5f), CircleShape)
+                            .testTag("calc_quantity_increment")
+                    ) {
+                        Text("+", fontSize = 18.sp, fontWeight = FontWeight.Black, color = NavySecondary)
+                    }
+                }
+            }
+
+            // Calculations Block
+            selectedCategory?.let { cat ->
+                val base = cat.basePrice
+                // live calculations
+                val itemCost = base * scopeFactor
+                val subtotal = itemCost * quantity
+                val totalMin = (subtotal + materialCost + urgencyCost).toInt()
+                val totalMax = ((subtotal * 1.2) + materialCost + urgencyCost + 150).toInt()
+                
+                // Live Budget Output Card
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                    border = BorderStroke(1.dp, Color(0xFFC8E6C9)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "ESTIMATED TOTAL PKR BUDGET RANGE",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF2E7D32)
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Bottom
+                        ) {
+                            Text(
+                                text = "${totalMin} - ${totalMax} PKR",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Color(0xFF1B5E20)
+                            )
+                            
+                            val estimatedHours = quantity.toDouble() * scopeFactor
+                            Text(
+                                text = "~ ${estimatedHours} ${if (estimatedHours == 1.0) "Hour" else "Hours"} Est.",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2E7D32)
+                            )
+                        }
+                        
+                        Text(
+                            text = "Base Rate: ${cat.basePrice.toInt()} PKR • Scale: x$quantity • Complexity: $scopeLabel (${scopeFactor}x) • Extra: ${materialLabel} (${materialCost.toInt()} PKR) & $urgencyLabel urgency (${urgencyCost.toInt()} PKR).",
+                            fontSize = 9.sp,
+                            color = Color(0xFF1B5E20).copy(alpha = 0.8f),
+                            lineHeight = 12.sp
+                        )
+                    }
+                }
+
+                // Call to Action Book Button
+                Button(
+                    onClick = {
+                        val descriptionString = "Diagnostic from Price Calculator: Category=${cat.name}, Scope=$scopeLabel, Materials=$materialLabel, Urgency=$urgencyLabel, Quantity=$quantity."
+                        val durationVal = quantity.toDouble() * scopeFactor
+                        onBookWithParams(cat, descriptionString, durationVal)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("calc_book_now_button"),
+                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Book ${cat.name} with these Specs",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                }
+            } ?: run {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Select a category above to view cost calculations.", fontSize = 12.sp, color = Color.Gray)
+                }
+            }
+        }
+    }
 }

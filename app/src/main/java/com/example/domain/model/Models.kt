@@ -78,3 +78,13 @@ data class AiChatMessage(
     val isUser: Boolean,
     val timestamp: Long = System.currentTimeMillis()
 )
+
+data class SavedAddress(
+    val id: Int = 0,
+    val userId: String,
+    val label: String, // e.g., "Home", "Office"
+    val address: String,
+    val latitude: Double = 33.6844,
+    val longitude: Double = 73.0479,
+    val isDefault: Boolean = false
+)

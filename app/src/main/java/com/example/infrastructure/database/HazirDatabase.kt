@@ -90,6 +90,17 @@ data class WalletTransactionEntity(
     val timestamp: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "saved_addresses")
+data class SavedAddressEntity(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val userId: String,
+    val label: String, // "Home", "Office", etc.
+    val address: String,
+    val latitude: Double = 33.6844,
+    val longitude: Double = 73.0479,
+    val isDefault: Boolean = false
+)
+
 // ==========================================
 // 2. DATA ACCESS OBJECTS (DAOs)
 // ==========================================
@@ -184,6 +195,36 @@ interface WalletDao {
     suspend fun insertTransaction(transaction: WalletTransactionEntity)
 }
 
+@Dao
+interface SavedAddressDao {
+    @Query("SELECT * FROM saved_addresses WHERE userId = :userId ORDER BY isDefault DESC, id DESC")
+    fun getSavedAddressesFlow(userId: String): Flow<List<SavedAddressEntity>>
+
+    @Query("SELECT * FROM saved_addresses WHERE userId = :userId ORDER BY isDefault DESC, id DESC")
+    suspend fun getSavedAddresses(userId: String): List<SavedAddressEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAddress(address: SavedAddressEntity): Long
+
+    @Update
+    suspend fun updateAddress(address: SavedAddressEntity)
+
+    @Delete
+    suspend fun deleteAddress(address: SavedAddressEntity)
+
+    @Query("UPDATE saved_addresses SET isDefault = 0 WHERE userId = :userId")
+    suspend fun clearDefaultAddresses(userId: String)
+
+    @Query("UPDATE saved_addresses SET isDefault = 1 WHERE id = :addressId AND userId = :userId")
+    suspend fun updateDefaultAddress(userId: String, addressId: Int)
+
+    @Transaction
+    suspend fun setDefaultAddress(userId: String, addressId: Int) {
+        clearDefaultAddresses(userId)
+        updateDefaultAddress(userId, addressId)
+    }
+}
+
 // ==========================================
 // 3. ROOM DATABASE CLASS
 // ==========================================
@@ -194,9 +235,10 @@ interface WalletDao {
         ServiceCategoryEntity::class,
         BookingEntity::class,
         ChatMessageEntity::class,
-        WalletTransactionEntity::class
+        WalletTransactionEntity::class,
+        SavedAddressEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class HazirDatabase : RoomDatabase() {
@@ -205,6 +247,7 @@ abstract class HazirDatabase : RoomDatabase() {
     abstract fun bookingDao(): BookingDao
     abstract fun chatDao(): ChatDao
     abstract fun walletDao(): WalletDao
+    abstract fun savedAddressDao(): SavedAddressDao
 
     companion object {
         @Volatile
@@ -400,6 +443,24 @@ abstract class HazirDatabase : RoomDatabase() {
                     amount = 5000.0,
                     type = "DEPOSIT",
                     description = "Welcome Bonus Deposit"
+                )
+            )
+
+            // Seed initial saved addresses for customer_1
+            db.savedAddressDao().insertAddress(
+                SavedAddressEntity(
+                    userId = "customer_1",
+                    label = "Home",
+                    address = "House 12-B, Sector F-6, Islamabad",
+                    isDefault = true
+                )
+            )
+            db.savedAddressDao().insertAddress(
+                SavedAddressEntity(
+                    userId = "customer_1",
+                    label = "Office",
+                    address = "Evacuee Trust Complex, Sector F-5, Islamabad",
+                    isDefault = false
                 )
             )
 

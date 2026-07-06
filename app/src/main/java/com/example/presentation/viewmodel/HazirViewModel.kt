@@ -44,6 +44,13 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
     private val depositWalletFundsUseCase: DepositWalletFundsUseCase
     private val transferFundsUseCase: TransferFundsUseCase
 
+    // Saved Address Use Cases
+    private val getSavedAddressesUseCase: GetSavedAddressesUseCase
+    private val insertSavedAddressUseCase: InsertSavedAddressUseCase
+    private val updateSavedAddressUseCase: UpdateSavedAddressUseCase
+    private val deleteSavedAddressUseCase: DeleteSavedAddressUseCase
+    private val setDefaultSavedAddressUseCase: SetDefaultSavedAddressUseCase
+
     private lateinit var repository: com.example.domain.repository.HazirRepository
 
     // 1. App Navigation / UI Persona State
@@ -72,12 +79,16 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
     val allBookingsAdmin: StateFlow<List<Booking>>
 
     val activeBookingDetail: StateFlow<Booking?>
+    val activeWorkerProfile: StateFlow<User?>
 
     // Chat Message Flow
     val activeChatMessages: StateFlow<List<ChatMessage>>
 
     // Wallet Transactions Flow
     val walletTransactions: StateFlow<List<WalletTransaction>>
+
+    // Saved Addresses Flow
+    val savedAddresses: StateFlow<List<SavedAddress>>
 
     // AI Advisor Local Chat History
     private val _aiChatHistory = MutableStateFlow<List<AiChatMessage>>(listOf(
@@ -132,6 +143,12 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
         depositWalletFundsUseCase = DepositWalletFundsUseCase(repository)
         transferFundsUseCase = TransferFundsUseCase(repository)
 
+        getSavedAddressesUseCase = GetSavedAddressesUseCase(repository)
+        insertSavedAddressUseCase = InsertSavedAddressUseCase(repository)
+        updateSavedAddressUseCase = UpdateSavedAddressUseCase(repository)
+        deleteSavedAddressUseCase = DeleteSavedAddressUseCase(repository)
+        setDefaultSavedAddressUseCase = SetDefaultSavedAddressUseCase(repository)
+
         // Bind Flows via Use Cases
         categories = getCategoriesUseCase()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -162,12 +179,25 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
             if (id != null) getBookingByIdFlowUseCase(id) else flowOf(null)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+        activeWorkerProfile = activeBookingDetail.flatMapLatest { booking ->
+            val workerId = booking?.workerId
+            if (!workerId.isNullOrEmpty()) {
+                getUserProfileUseCase(workerId)
+            } else {
+                flowOf(null)
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
         activeChatMessages = _selectedBookingId.flatMapLatest { id ->
             if (id != null) getChatMessagesUseCase(id) else flowOf(emptyList())
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         walletTransactions = _currentUserId.flatMapLatest { id ->
             if (id.isNotEmpty()) getWalletTransactionsUseCase(id) else flowOf(emptyList())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        savedAddresses = _currentUserId.flatMapLatest { id ->
+            if (id.isNotEmpty()) getSavedAddressesUseCase(id) else flowOf(emptyList())
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     }
 
@@ -413,6 +443,12 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
 
             // Trigger "completed" push notification via NotificationManager
             com.example.infrastructure.notification.NotificationManager.triggerJobCompleted(
+                getApplication(),
+                bookingId,
+                booking.workerName ?: "Technician",
+                booking.categoryName
+            )
+            com.example.infrastructure.notification.NotificationProvider.triggerJobCompleted(
                 getApplication(),
                 bookingId,
                 booking.workerName ?: "Technician",
@@ -674,6 +710,12 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
                     matchedWorker.name ?: "Technician",
                     acceptedBooking.categoryName
                 )
+                com.example.infrastructure.notification.NotificationProvider.triggerJobAccepted(
+                    getApplication(),
+                    bookingId,
+                    matchedWorker.name ?: "Technician",
+                    acceptedBooking.categoryName
+                )
 
                 sendChatMessageUseCase(
                     ChatMessage(
@@ -766,6 +808,12 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
                                 matchedWorker.name ?: "Technician",
                                 startedBooking.categoryName
                             )
+                            com.example.infrastructure.notification.NotificationProvider.triggerJobCompleted(
+                                getApplication(),
+                                bookingId,
+                                matchedWorker.name ?: "Technician",
+                                startedBooking.categoryName
+                            )
 
                             sendChatMessageUseCase(
                                 ChatMessage(
@@ -852,6 +900,61 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
                     message = replyText
                 )
             )
+        }
+    }
+
+    fun refreshBookings(onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            delay(1200)
+            val currentId = _currentUserId.value
+            if (currentId.isNotEmpty()) {
+                _currentUserId.value = ""
+                _currentUserId.value = currentId
+            }
+            onComplete()
+        }
+    }
+
+    // ==========================================
+    // SAVED ADDRESS MANAGEMENT METHODS
+    // ==========================================
+    fun saveAddress(label: String, address: String, isDefault: Boolean) {
+        val userId = _currentUserId.value
+        if (userId.isEmpty()) return
+        viewModelScope.launch {
+            val newAddress = SavedAddress(
+                userId = userId,
+                label = label,
+                address = address,
+                isDefault = isDefault
+            )
+            val id = insertSavedAddressUseCase(newAddress)
+            if (isDefault) {
+                setDefaultSavedAddressUseCase(userId, id)
+            }
+        }
+    }
+
+    fun updateAddress(savedAddress: SavedAddress) {
+        viewModelScope.launch {
+            if (savedAddress.isDefault) {
+                setDefaultSavedAddressUseCase(savedAddress.userId, savedAddress.id)
+            }
+            updateSavedAddressUseCase(savedAddress)
+        }
+    }
+
+    fun deleteAddress(savedAddress: SavedAddress) {
+        viewModelScope.launch {
+            deleteSavedAddressUseCase(savedAddress)
+        }
+    }
+
+    fun setAsDefaultAddress(addressId: Int) {
+        val userId = _currentUserId.value
+        if (userId.isEmpty()) return
+        viewModelScope.launch {
+            setDefaultSavedAddressUseCase(userId, addressId)
         }
     }
 }

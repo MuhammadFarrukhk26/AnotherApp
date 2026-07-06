@@ -37,4 +37,12 @@ interface HazirRepository {
     fun getTransactionsForUserFlow(userId: String): Flow<List<WalletTransaction>>
     suspend fun depositFunds(userId: String, amount: Double, description: String)
     suspend fun transferFunds(senderId: String, receiverId: String, amount: Double, description: String)
+
+    // Saved Address Operations
+    fun getSavedAddressesFlow(userId: String): Flow<List<SavedAddress>>
+    suspend fun getSavedAddresses(userId: String): List<SavedAddress>
+    suspend fun insertSavedAddress(address: SavedAddress): Int
+    suspend fun updateSavedAddress(address: SavedAddress)
+    suspend fun deleteSavedAddress(address: SavedAddress)
+    suspend fun setDefaultSavedAddress(userId: String, addressId: Int)
 }

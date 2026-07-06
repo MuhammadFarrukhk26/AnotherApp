@@ -94,6 +94,12 @@ class WorkerTrackingService : Service() {
                 workerName,
                 initialEta
             )
+            com.example.infrastructure.notification.NotificationProvider.triggerWorkerEnRoute(
+                applicationContext,
+                bookingId,
+                workerName,
+                initialEta
+            )
 
             for (i in 1..ticks) {
                 delay(3000)
@@ -113,6 +119,12 @@ class WorkerTrackingService : Service() {
                 if (eta <= 5 && !alerted5Min) {
                     alerted5Min = true
                     sendPushAlertNotification(bookingId, workerName, eta)
+                    com.example.infrastructure.notification.NotificationProvider.triggerWorkerArriving(
+                        applicationContext,
+                        bookingId,
+                        workerName,
+                        eta
+                    )
                 }
             }
 
@@ -125,6 +137,13 @@ class WorkerTrackingService : Service() {
                 val booking = repository.getBookingById(bookingId)
                 if (booking != null && booking.status == "ACCEPTED") {
                     repository.updateBooking(booking.copy(status = "ARRIVED"))
+
+                    // Trigger "arrived" push notification via NotificationProvider
+                    com.example.infrastructure.notification.NotificationProvider.triggerWorkerArrived(
+                        applicationContext,
+                        bookingId,
+                        workerName
+                    )
 
                     // Add system arrival chat message
                     repository.sendMessage(

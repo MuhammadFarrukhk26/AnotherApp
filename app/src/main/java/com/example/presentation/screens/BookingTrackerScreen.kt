@@ -43,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,6 +65,7 @@ fun BookingTrackerScreen(
 ) {
     val context = LocalContext.current
     val booking by viewModel.activeBookingDetail.collectAsStateWithLifecycle()
+    val activeWorkerProfile by viewModel.activeWorkerProfile.collectAsStateWithLifecycle()
     val chatMessages by viewModel.activeChatMessages.collectAsStateWithLifecycle()
     val workerLat by viewModel.simulatedWorkerLat.collectAsStateWithLifecycle()
     val workerLng by viewModel.simulatedWorkerLng.collectAsStateWithLifecycle()
@@ -94,6 +96,9 @@ fun BookingTrackerScreen(
     var chatInput by remember { mutableStateOf("") }
     var showShareDialog by remember { mutableStateOf(false) }
     var generatedShareLink by remember { mutableStateOf("") }
+    
+    var inlineRating by remember(bookingId) { mutableStateOf(5) }
+    var inlineReviewText by remember(bookingId) { mutableStateOf("") }
 
     // Network Status State
     var isNetworkAvailable by remember { mutableStateOf(true) }
@@ -245,6 +250,7 @@ fun BookingTrackerScreen(
                     .weight(1.1f)
                     .fillMaxWidth()
                     .padding(8.dp)
+                    .testTag("booking_detail_map_view")
             ) {
                 SimulatedLiveMap(
                     workerLat = workerLat,
@@ -398,6 +404,338 @@ fun BookingTrackerScreen(
                             }
                         }
 
+                        // Professional Profile Card Component
+                        if (currentBooking.workerName != null) {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("professional_profile_card"),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Professional Profile",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = NavySecondary
+                                        )
+
+                                        val isVerified = activeWorkerProfile?.cnicVerified ?: true
+                                        if (isVerified) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(Color(0xFFE8F5E9))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    .testTag("professional_verified_badge"),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Verified,
+                                                    contentDescription = "Verified Badge",
+                                                    tint = Color(0xFF2E7D32),
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    text = "Verified Pro",
+                                                    color = Color(0xFF2E7D32),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        // Experience Info Block
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Engineering,
+                                                contentDescription = null,
+                                                tint = OrangePrimary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "${activeWorkerProfile?.experienceYears ?: 5} Years",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = NavySecondary,
+                                                modifier = Modifier.testTag("professional_experience_text")
+                                            )
+                                            Text(
+                                                text = "Experience",
+                                                fontSize = 10.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .width(1.dp)
+                                                .height(32.dp)
+                                                .background(Color.LightGray)
+                                        )
+
+                                        // Completed Jobs Info Block
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = OrangePrimary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "${activeWorkerProfile?.completedJobs ?: 142} Jobs",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = NavySecondary,
+                                                modifier = Modifier.testTag("professional_completed_jobs_text")
+                                            )
+                                            Text(
+                                                text = "Completed",
+                                                fontSize = 10.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .width(1.dp)
+                                                .height(32.dp)
+                                                .background(Color.LightGray)
+                                        )
+
+                                        // Star Rating Block
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Star,
+                                                contentDescription = null,
+                                                tint = Color(0xFFFFB300),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "${activeWorkerProfile?.rating ?: 4.8} ★",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = NavySecondary,
+                                                modifier = Modifier.testTag("professional_rating_text")
+                                            )
+                                            Text(
+                                                text = "Rating",
+                                                fontSize = 10.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 2.5 Direct Real-Time Messaging Component within Detail Screen
+                            var inlineChatInput by remember { mutableStateOf("") }
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("inline_messaging_component"),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(14.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Header
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(8.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0xFF4CAF50)) // Live green status indicator
+                                            )
+                                            Text(
+                                                text = "Direct Service Chat",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = NavySecondary
+                                            )
+                                        }
+
+                                        // Open full chat button
+                                        TextButton(
+                                            onClick = { showChatRoom = true },
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                            modifier = Modifier.testTag("open_full_chat_text_button")
+                                        ) {
+                                            Text(
+                                                text = "Open Chat Room",
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 11.sp,
+                                                color = OrangePrimary
+                                            )
+                                            Spacer(modifier = Modifier.width(2.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.OpenInNew,
+                                                contentDescription = "Open Chat Room",
+                                                tint = OrangePrimary,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    }
+
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                                    // Display the 3 most recent messages or placeholder if empty
+                                    val recentMessages = chatMessages.takeLast(3)
+                                    if (recentMessages.isEmpty()) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(60.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = "No messages yet. Ask about timing or specific details!",
+                                                fontSize = 11.sp,
+                                                color = Color.Gray,
+                                                fontStyle = FontStyle.Italic,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                    } else {
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            recentMessages.forEach { msg ->
+                                                val isMe = msg.senderRole == currentRole
+                                                val senderName = if (isMe) "You" else (currentBooking.workerName ?: "Technician")
+                                                val bubbleColor = if (isMe) OrangePrimary.copy(alpha = 0.08f) else Color(0xFFF1F5F9)
+                                                val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                                                
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .background(bubbleColor)
+                                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                                    horizontalArrangement = if (isMe) Arrangement.End else Arrangement.Start,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                                                        Row(
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = senderName,
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontSize = 10.sp,
+                                                                color = if (isMe) OrangePrimary else NavySecondary
+                                                            )
+                                                            Text(
+                                                                text = sdf.format(Date(msg.timestamp)),
+                                                                fontSize = 8.sp,
+                                                                color = Color.Gray
+                                                            )
+                                                        }
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Text(
+                                                            text = msg.message,
+                                                            fontSize = 11.sp,
+                                                            color = NavySecondary
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(2.dp))
+
+                                    // Quick Input field and send button
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        OutlinedTextField(
+                                            value = inlineChatInput,
+                                            onValueChange = { inlineChatInput = it },
+                                            placeholder = { Text("Type a message to ${currentBooking.workerName ?: "pro"}...", fontSize = 11.sp) },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .heightIn(min = 40.dp)
+                                                .testTag("inline_chat_input_field"),
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = OrangePrimary,
+                                                unfocusedBorderColor = Color.LightGray.copy(alpha = 0.5f),
+                                                cursorColor = OrangePrimary
+                                            ),
+                                            singleLine = true,
+                                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                                        )
+
+                                        IconButton(
+                                            onClick = {
+                                                if (inlineChatInput.trim().isNotEmpty()) {
+                                                    viewModel.sendChatMessage(currentBooking.id, inlineChatInput)
+                                                    inlineChatInput = ""
+                                                }
+                                            },
+                                            modifier = Modifier
+                                                .clip(CircleShape)
+                                                .background(OrangePrimary)
+                                                .size(36.dp)
+                                                .testTag("inline_chat_send_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                                contentDescription = "Send Message",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // Service Proof Photo Verification Card
                         if (currentBooking.beforePhoto != null || currentBooking.afterPhoto != null) {
                             Card(
@@ -475,6 +813,135 @@ fun BookingTrackerScreen(
                             }
                         }
 
+                        // Rating Option for Completed Booking
+                        if (currentBooking.status == "COMPLETED") {
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("booking_rating_card"),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    if (currentBooking.rating != null) {
+                                        // Booking is already rated: show read-only rating info
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = "Success",
+                                                tint = Color(0xFF2E7D32),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Text(
+                                                text = "Service Rated & Paid",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = Color(0xFF2E7D32)
+                                            )
+                                        }
+
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            for (i in 1..5) {
+                                                Icon(
+                                                    imageVector = if (i <= currentBooking.rating) Icons.Default.Star else Icons.Default.StarBorder,
+                                                    contentDescription = null,
+                                                    tint = if (i <= currentBooking.rating) Color(0xFFFFB300) else Color.Gray,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                        }
+
+                                        if (!currentBooking.review.isNullOrBlank()) {
+                                            Text(
+                                                text = "\"${currentBooking.review}\"",
+                                                fontSize = 13.sp,
+                                                fontStyle = FontStyle.Italic,
+                                                color = NavySecondary,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.padding(horizontal = 8.dp)
+                                            )
+                                        }
+                                    } else {
+                                        // Booking is completed but not yet rated: show interactive star-rating and text feedback
+                                        Text(
+                                            text = "Rate Your Professional",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = NavySecondary
+                                        )
+                                        Text(
+                                            text = "Your feedback helps us maintain high quality standards in Islamabad.",
+                                            fontSize = 11.sp,
+                                            color = Color.Gray,
+                                            textAlign = TextAlign.Center
+                                        )
+
+                                        // Star Rating Row
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            for (i in 1..5) {
+                                                IconButton(
+                                                    onClick = { inlineRating = i },
+                                                    modifier = Modifier.size(36.dp).testTag("star_button_$i")
+                                                ) {
+                                                    Icon(
+                                                        imageVector = if (i <= inlineRating) Icons.Default.Star else Icons.Default.StarBorder,
+                                                        contentDescription = "$i Stars",
+                                                        tint = if (i <= inlineRating) Color(0xFFFFB300) else Color.Gray,
+                                                        modifier = Modifier.size(32.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        OutlinedTextField(
+                                            value = inlineReviewText,
+                                            onValueChange = { inlineReviewText = it },
+                                            placeholder = { Text("Write your feedback here... (Optional)", fontSize = 12.sp) },
+                                            modifier = Modifier.fillMaxWidth().testTag("rating_feedback_input"),
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = OrangePrimary,
+                                                unfocusedBorderColor = Color.LightGray
+                                            ),
+                                            maxLines = 3
+                                        )
+
+                                        Button(
+                                            onClick = {
+                                                viewModel.payAndReviewBooking(
+                                                    bookingId = currentBooking.id,
+                                                    rating = inlineRating,
+                                                    review = inlineReviewText,
+                                                    tipAmount = 0.0,
+                                                    finalPaymentMethod = currentBooking.paymentMethod
+                                                )
+                                                Toast.makeText(context, "Thank you for your rating!", Toast.LENGTH_SHORT).show()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.fillMaxWidth().height(44.dp).testTag("submit_rating_feedback_button")
+                                        ) {
+                                            Text("Submit Rating", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // Collapsible FAQ Section Composable
                         BookingFAQSection()
                     }
@@ -499,7 +966,9 @@ fun BookingTrackerScreen(
                                             showCancellationModal = true
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("cancel_booking_request_button"),
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
                                         Text("Cancel Booking Request", fontWeight = FontWeight.Bold)
@@ -535,7 +1004,9 @@ fun BookingTrackerScreen(
                                                 showCancellationModal = true
                                             },
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFEBEE)),
-                                            modifier = Modifier.height(48.dp),
+                                            modifier = Modifier
+                                                .height(48.dp)
+                                                .testTag("emergency_cancel_button"),
                                             shape = RoundedCornerShape(12.dp)
                                         ) {
                                             Text("Cancel", color = Color.Red, fontWeight = FontWeight.Bold)
@@ -544,19 +1015,39 @@ fun BookingTrackerScreen(
                                 }
                             }
                             "COMPLETED" -> {
-                                // Complete booking pay & review button
-                                Button(
-                                    onClick = { showPaymentDialog = true },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(52.dp)
-                                        .testTag("pay_review_button"),
-                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
-                                    shape = RoundedCornerShape(16.dp)
-                                ) {
-                                    Icon(Icons.Default.CreditCard, contentDescription = null, tint = Color.White)
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Pay & Review Service (PKR ${currentBooking.estimatedPrice})", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                if (currentBooking.rating == null) {
+                                    // Complete booking pay & review button
+                                    Button(
+                                        onClick = { showPaymentDialog = true },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(52.dp)
+                                            .testTag("pay_review_button"),
+                                        colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                        shape = RoundedCornerShape(16.dp)
+                                    ) {
+                                        Icon(Icons.Default.CreditCard, contentDescription = null, tint = Color.White)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Pay & Review Service (PKR ${currentBooking.estimatedPrice})", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    }
+                                } else {
+                                    // Already rated and paid
+                                    Button(
+                                        onClick = {
+                                            viewModel.selectBooking(null)
+                                            onBack()
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(52.dp)
+                                            .testTag("back_to_bookings_button"),
+                                        colors = ButtonDefaults.buttonColors(containerColor = NavySecondary),
+                                        shape = RoundedCornerShape(16.dp)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = Color.White)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Back to Bookings", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    }
                                 }
                             }
                             "CANCELLED" -> {
