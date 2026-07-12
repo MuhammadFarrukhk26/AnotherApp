@@ -1905,7 +1905,9 @@ fun BookingFormDialog(
                                     selectedContainerColor = OrangePrimary.copy(alpha = 0.15f),
                                     selectedLabelColor = OrangePrimary
                                 ),
-                                border = FilterChipDefaults.filterChipBorder(
+                                 border = FilterChipDefaults.filterChipBorder(
+                                    enabled = true,
+                                    selected = isSelected,
                                     borderColor = if (isSelected) OrangePrimary else Color.LightGray,
                                     borderWidth = if (isSelected) 1.5.dp else 1.dp
                                 )
@@ -3646,4 +3648,254 @@ fun InteractiveCostCalculatorCard(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SavedAddressesDialog(
+    savedAddresses: List<SavedAddress>,
+    onDismiss: () -> Unit,
+    onSaveAddress: (String, String, Boolean) -> Unit,
+    onDeleteAddress: (SavedAddress) -> Unit,
+    onSetDefaultAddress: (Int) -> Unit
+) {
+    var showAddForm by remember { mutableStateOf(false) }
+    var label by remember { mutableStateOf("Home") }
+    var addressText by remember { mutableStateOf("") }
+    var isDefaultAddress by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.testTag("saved_addresses_close_button")) {
+                Text("Close", color = OrangePrimary)
+            }
+        },
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Saved Addresses", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                if (!showAddForm) {
+                    IconButton(
+                        onClick = { showAddForm = true },
+                        modifier = Modifier.testTag("add_new_address_icon_button")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add New Address", tint = OrangePrimary)
+                    }
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .animateContentSize()
+            ) {
+                if (showAddForm) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        colors = CardDefaults.cardColors(containerColor = OrangeLight.copy(alpha = 0.2f)),
+                        border = BorderStroke(1.dp, OrangePrimary.copy(alpha = 0.3f))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text("Add New Address", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = NavySecondary)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            Text("Label", fontSize = 11.sp, color = Color.Gray)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(vertical = 4.dp)
+                            ) {
+                                listOf("Home", "Office", "Apartment", "Other").forEach { lbl ->
+                                    val isSelected = label == lbl
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isSelected) OrangePrimary.copy(alpha = 0.15f) else Color.Transparent)
+                                            .border(1.dp, if (isSelected) OrangePrimary else Color.Gray, RoundedCornerShape(8.dp))
+                                            .clickable { label = lbl }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                            .testTag("address_label_chip_$lbl")
+                                    ) {
+                                        Text(lbl, fontSize = 10.sp, color = if (isSelected) OrangePrimary else Color.DarkGray)
+                                    }
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            OutlinedTextField(
+                                value = addressText,
+                                onValueChange = { addressText = it },
+                                label = { Text("Address details") },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("new_address_input_field"),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = OrangePrimary,
+                                    cursorColor = OrangePrimary
+                                )
+                            )
+                            
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Checkbox(
+                                    checked = isDefaultAddress,
+                                    onCheckedChange = { isDefaultAddress = it },
+                                    colors = CheckboxDefaults.colors(checkedColor = OrangePrimary),
+                                    modifier = Modifier.testTag("address_default_checkbox")
+                                )
+                                Text("Set as default address", fontSize = 12.sp, color = Color.DarkGray)
+                            }
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
+                            
+                            Row(
+                                horizontalArrangement = Arrangement.End,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                TextButton(onClick = { showAddForm = false }) {
+                                    Text("Cancel", color = Color.Gray)
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        if (addressText.isNotBlank()) {
+                                            onSaveAddress(label, addressText.trim(), isDefaultAddress)
+                                            addressText = ""
+                                            isDefaultAddress = false
+                                            showAddForm = false
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = OrangePrimary),
+                                    modifier = Modifier.testTag("save_address_submit_button")
+                                ) {
+                                    Text("Save")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (savedAddresses.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No saved addresses. Add one to simplify booking!", fontSize = 12.sp, color = Color.Gray, textAlign = TextAlign.Center)
+                    }
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 300.dp)
+                    ) {
+                        items(savedAddresses) { savedAddr ->
+                            val icon = when (savedAddr.label.lowercase()) {
+                                "home" -> Icons.Default.Home
+                                "office" -> Icons.Default.Business
+                                else -> Icons.Default.Place
+                            }
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("address_item_${savedAddr.id}"),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (savedAddr.isDefault) OrangeLight.copy(alpha = 0.1f) else Color.White
+                                ),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (savedAddr.isDefault) OrangePrimary.copy(alpha = 0.4f) else Color.LightGray.copy(alpha = 0.5f)
+                                )
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(10.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = savedAddr.label,
+                                        tint = if (savedAddr.isDefault) OrangePrimary else Color.Gray,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = savedAddr.label,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = NavySecondary
+                                            )
+                                            if (savedAddr.isDefault) {
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(OrangePrimary.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text("DEFAULT", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = OrangePrimary)
+                                                }
+                                            }
+                                        }
+                                        Text(
+                                            text = savedAddr.address,
+                                            fontSize = 12.sp,
+                                            color = Color.DarkGray,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    // Default toggler (Star)
+                                    IconButton(
+                                        onClick = { onSetDefaultAddress(savedAddr.id) },
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .testTag("set_default_address_button_${savedAddr.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Star,
+                                            contentDescription = "Set Default",
+                                            tint = if (savedAddr.isDefault) OrangePrimary else Color.Gray.copy(alpha = 0.4f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    // Delete button
+                                    IconButton(
+                                        onClick = { onDeleteAddress(savedAddr) },
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .testTag("delete_address_button_${savedAddr.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete",
+                                            tint = Color.Red.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
 }
