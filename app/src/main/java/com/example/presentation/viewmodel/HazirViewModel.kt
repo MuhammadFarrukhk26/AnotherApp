@@ -80,6 +80,7 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
 
     val activeBookingDetail: StateFlow<Booking?>
     val activeWorkerProfile: StateFlow<User?>
+    val activeWorkerBookingHistory: StateFlow<List<Booking>>
 
     // Chat Message Flow
     val activeChatMessages: StateFlow<List<ChatMessage>>
@@ -187,6 +188,15 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
                 flowOf(null)
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+        activeWorkerBookingHistory = activeBookingDetail.flatMapLatest { booking ->
+            val workerId = booking?.workerId
+            if (!workerId.isNullOrEmpty()) {
+                getWorkerBookingsUseCase(workerId)
+            } else {
+                flowOf(emptyList())
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         activeChatMessages = _selectedBookingId.flatMapLatest { id ->
             if (id != null) getChatMessagesUseCase(id) else flowOf(emptyList())
@@ -385,6 +395,16 @@ class HazirViewModel(application: Application) : AndroidViewModel(application) {
         if (bookingId != null) {
             viewModelScope.launch {
                 markMessagesAsReadUseCase(bookingId, _currentUserId.value)
+                val booking = getBookingByIdUseCase(bookingId)
+                if (booking != null && booking.status != "PENDING" && booking.status != "CANCELLED") {
+                    if (_simulatedWorkerLat.value == null) {
+                        _simulatedWorkerLat.value = booking.latitude + 0.0256
+                        _simulatedWorkerLng.value = booking.longitude + 0.0221
+                    }
+                } else if (booking?.status == "PENDING" || booking?.status == "CANCELLED") {
+                    _simulatedWorkerLat.value = null
+                    _simulatedWorkerLng.value = null
+                }
             }
         }
     }

@@ -11,6 +11,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -24,11 +26,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -99,7 +103,7 @@ fun SimulatedLiveMap(
     var offsetY by remember { mutableStateOf(0f) }
     var zoomScale by remember { mutableStateOf(1.0f) }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(Color(0xFFEAEFF5))
@@ -112,13 +116,25 @@ fun SimulatedLiveMap(
             }
             .testTag("simulated_live_map_box")
     ) {
+        val width = constraints.maxWidth.toFloat()
+        val height = constraints.maxHeight.toFloat()
+
+        // Center of coordinates on canvas (with drag panning offset)
+        val center = Offset(width / 2f + offsetX, height / 2f + offsetY)
+        val customerPinOffset = center
+
+        // Calculate worker offset relative to center
+        val workerPinOffset = if (workerLat != null && workerLng != null) {
+            val latScale = 8000f
+            val lngScale = 8000f
+            val dy = (customerLat - workerLat) * latScale * zoomScale
+            val dx = (workerLng - customerLng) * lngScale * zoomScale
+            Offset(center.x + dx.toFloat(), center.y + dy.toFloat())
+        } else {
+            null
+        }
+
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val width = size.width
-            val height = size.height
-
-            // Coordinates mapping logic center of canvas as customer position
-            val center = Offset(width / 2f + offsetX, height / 2f + offsetY)
-
             // 1. Draw stylized streets (grid-based and radial roads to represent Islamabad)
             val streetColor = Color(0xFFFFFFFF)
             val streetWidth = 14f * zoomScale
@@ -200,41 +216,8 @@ fun SimulatedLiveMap(
                 paint
             )
 
-            // 2. Customer Pin location (Center)
-            val customerPinOffset = center
-
-            // Pulse effect for customer
-            drawCircle(
-                color = Color(0x33FA7D09),
-                radius = (35f + pulseScale) * zoomScale,
-                center = customerPinOffset
-            )
-
-            // Draw target circle
-            drawCircle(
-                color = OrangePrimary,
-                radius = 12f * zoomScale,
-                center = customerPinOffset
-            )
-            drawCircle(
-                color = Color.White,
-                radius = 5f * zoomScale,
-                center = customerPinOffset
-            )
-
-            // 3. Worker Pin location
-            if (workerLat != null && workerLng != null) {
-                // Map GPS coordinates relative to center (scaled Islamabad coordinates)
-                // Customer is at (33.6844, 73.0479)
-                val latScale = 8000f // Scaling factor for mapping
-                val lngScale = 8000f
-
-                val dy = (customerLat - workerLat) * latScale * zoomScale
-                val dx = (workerLng - customerLng) * lngScale * zoomScale
-
-                val workerPinOffset = Offset(center.x + dx.toFloat(), center.y + dy.toFloat())
-
-                // Draw Transit Path
+            // Draw Transit Path
+            if (workerPinOffset != null) {
                 if (status == "ACCEPTED" || status == "ARRIVED") {
                     drawLine(
                         color = OrangePrimary,
@@ -247,37 +230,116 @@ fun SimulatedLiveMap(
                         )
                     )
                 }
+            }
+        }
 
-                // Pulse effect for worker (if active)
-                if (status == "ACCEPTED") {
-                    drawCircle(
-                        color = Color(0x331F4068),
-                        radius = (15f + pulseScale) * zoomScale,
-                        center = workerPinOffset
+        // Overlay Interactive Customer Marker (Scheduled Job Site)
+        val customerMarkerSize = 44.dp
+        Box(
+            modifier = Modifier
+                .size(customerMarkerSize)
+                .graphicsLayer {
+                    translationX = customerPinOffset.x - (customerMarkerSize.toPx() / 2)
+                    translationY = customerPinOffset.y - (customerMarkerSize.toPx() / 2)
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            // Pulsing Glow
+            Box(
+                modifier = Modifier
+                    .size((30f + pulseScale).dp)
+                    .background(OrangePrimary.copy(alpha = pulseAlpha), CircleShape)
+            )
+
+            // Pin badge card
+            Card(
+                shape = CircleShape,
+                colors = CardDefaults.cardColors(containerColor = OrangePrimary),
+                elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                modifier = Modifier.size(36.dp)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Home,
+                        contentDescription = "Scheduled Job Site",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
+            }
 
-                // Draw worker bike marker background
-                drawCircle(
-                    color = Color(0xFF1F4068),
-                    radius = 20f * zoomScale,
-                    center = workerPinOffset
-                )
-
-                // White ring
-                drawCircle(
+            // Small hovering text label
+            Box(
+                modifier = Modifier
+                    .offset(y = (-30).dp)
+                    .background(Color(0xFF0F172A), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "Job Site",
                     color = Color.White,
-                    radius = 16f * zoomScale,
-                    center = workerPinOffset,
-                    style = Stroke(width = 3f * zoomScale)
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Overlay Interactive Service Provider Marker with Real-time GPS coordinates tracking
+        if (workerPinOffset != null) {
+            val workerMarkerSize = 44.dp
+            Box(
+                modifier = Modifier
+                    .size(workerMarkerSize)
+                    .graphicsLayer {
+                        translationX = workerPinOffset.x - (workerMarkerSize.toPx() / 2)
+                        translationY = workerPinOffset.y - (workerMarkerSize.toPx() / 2)
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                // Pulse Glow for worker tracking
+                Box(
+                    modifier = Modifier
+                        .size((30f + pulseScale).dp)
+                        .background(Color(0xFF1F4068).copy(alpha = pulseAlpha), CircleShape)
                 )
 
-                // Bike/Mechanic center core
-                drawCircle(
-                    color = Color(0xFFFF9F1C),
-                    radius = 8f * zoomScale,
-                    center = workerPinOffset
-                )
+                // Worker Pin Marker Card
+                Card(
+                    shape = CircleShape,
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1F4068)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DirectionsBike,
+                            contentDescription = "Service Provider Location",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                // Hovering provider label
+                Box(
+                    modifier = Modifier
+                        .offset(y = (-30).dp)
+                        .background(Color(0xFFFF9F1C), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "Hazir Pro",
+                        color = Color.White,
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 
@@ -364,6 +426,60 @@ fun SimulatedLiveMap(
                     imageVector = Icons.Default.MyLocation,
                     contentDescription = "Recenter",
                     tint = Color(0xFF1F4068)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun StarRatingBar(
+    rating: Int,
+    onRatingChanged: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    maxStars: Int = 5,
+    starSize: Dp = 36.dp,
+    interactive: Boolean = true,
+    testTagPrefix: String = "star_button_"
+) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+    ) {
+        for (i in 1..maxStars) {
+            val isSelected = i <= rating
+            val starScale by animateFloatAsState(
+                targetValue = if (isSelected) 1.2f else 1.0f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessLow
+                ),
+                label = "starScale"
+            )
+
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .then(
+                        if (interactive) {
+                            Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = ripple(bounded = false, radius = 24.dp),
+                                onClick = { onRatingChanged(i) }
+                            )
+                        } else Modifier
+                    )
+                    .testTag("$testTagPrefix$i")
+            ) {
+                Icon(
+                    imageVector = if (isSelected) Icons.Default.Star else Icons.Default.StarBorder,
+                    contentDescription = "$i Stars",
+                    tint = if (isSelected) Color(0xFFFFB300) else Color.Gray.copy(alpha = 0.6f),
+                    modifier = Modifier
+                        .size(starSize)
+                        .scale(starScale)
                 )
             }
         }
@@ -643,24 +759,12 @@ fun RatingAndReviewDialog(
                         Text("How was your experience?", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF0F172A))
 
                         // Star Rating Row
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            for (i in 1..5) {
-                                IconButton(
-                                    onClick = { rating = i },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (i <= rating) Icons.Default.Star else Icons.Default.StarBorder,
-                                        contentDescription = "$i Stars",
-                                        tint = if (i <= rating) Color(0xFFFFB300) else Color.Gray,
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                }
-                            }
-                        }
+                        StarRatingBar(
+                            rating = rating,
+                            onRatingChanged = { rating = it },
+                            starSize = 32.dp,
+                            testTagPrefix = "dialog_star_button_"
+                        )
 
                         // Review Text
                         OutlinedTextField(
@@ -825,6 +929,19 @@ fun RatingAndReviewDialog(
                                                 }
                                             }
                                         }
+
+                                        val pubKey = StripeClient.getPublishableKey()
+                                        val maskedKey = if (pubKey.length > 15) {
+                                            "${pubKey.take(8)}...${pubKey.takeLast(6)}"
+                                        } else {
+                                            pubKey.ifEmpty { "None" }
+                                        }
+                                        Text(
+                                            text = "Stripe Client Key: $maskedKey",
+                                            fontSize = 9.sp,
+                                            color = Color.Gray,
+                                            modifier = Modifier.align(Alignment.Start).testTag("stripe_pub_key_label")
+                                        )
 
                                         OutlinedTextField(
                                             value = cardName,
@@ -1181,24 +1298,12 @@ fun PostServiceRatingDialog(
                 )
 
                 // Interactive Star Rating Row
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    for (i in 1..5) {
-                        IconButton(
-                            onClick = { rating = i },
-                            modifier = Modifier.size(38.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (i <= rating) Icons.Default.Star else Icons.Default.StarBorder,
-                                contentDescription = "$i Stars",
-                                tint = if (i <= rating) Color(0xFFFFB300) else Color.Gray,
-                                modifier = Modifier.size(34.dp)
-                            )
-                        }
-                    }
-                }
+                StarRatingBar(
+                    rating = rating,
+                    onRatingChanged = { rating = it },
+                    starSize = 34.dp,
+                    testTagPrefix = "post_service_star_"
+                )
 
                 Spacer(modifier = Modifier.height(4.dp))
 

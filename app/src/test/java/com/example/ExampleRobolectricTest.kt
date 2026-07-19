@@ -89,4 +89,58 @@ class ExampleRobolectricTest {
     val oldDefault = list.find { it.id == id1 }
     assertEquals(false, oldDefault?.isDefault)
   }
+
+  @Test
+  fun `test worker bookings retrieval`() = runBlocking {
+    val dao = db.bookingDao()
+    val pastBooking1 = com.example.infrastructure.database.BookingEntity(
+        categoryId = "electrician",
+        categoryName = "Electrician",
+        customerId = "customer_1",
+        customerName = "Haris Mahmood",
+        customerPhone = "0300-1234567",
+        workerId = "worker_electrician",
+        workerName = "Sajid Qureshi",
+        workerPhone = "0312-5551111",
+        date = "June 12, 2026",
+        time = "10:30 AM",
+        address = "House 12-B",
+        latitude = 33.6844,
+        longitude = 73.0479,
+        description = "Short circuit repair",
+        estimatedPrice = 900.0,
+        status = "COMPLETED",
+        rating = 5,
+        review = "Excellent"
+    )
+    val pastBooking2 = com.example.infrastructure.database.BookingEntity(
+        categoryId = "ac_technician",
+        categoryName = "AC Technician",
+        customerId = "customer_1",
+        customerName = "Haris Mahmood",
+        customerPhone = "0300-1234567",
+        workerId = "worker_electrician",
+        workerName = "Sajid Qureshi",
+        workerPhone = "0312-5551111",
+        date = "June 24, 2026",
+        time = "12:00 PM",
+        address = "House 12-B",
+        latitude = 33.6844,
+        longitude = 73.0479,
+        description = "AC cleaning",
+        estimatedPrice = 1200.0,
+        status = "COMPLETED",
+        rating = 4,
+        review = "Good"
+    )
+
+    dao.insertBooking(pastBooking1)
+    dao.insertBooking(pastBooking2)
+
+    val workerBookings = dao.getBookingsForWorker("worker_electrician")
+    assertEquals(2, workerBookings.size)
+
+    val flowBookings = dao.getWorkerBookingsFlow("worker_electrician").first()
+    assertEquals(2, flowBookings.size)
+  }
 }

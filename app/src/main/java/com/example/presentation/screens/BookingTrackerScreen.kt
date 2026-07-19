@@ -66,6 +66,7 @@ fun BookingTrackerScreen(
     val context = LocalContext.current
     val booking by viewModel.activeBookingDetail.collectAsStateWithLifecycle()
     val activeWorkerProfile by viewModel.activeWorkerProfile.collectAsStateWithLifecycle()
+    val activeWorkerBookingHistory by viewModel.activeWorkerBookingHistory.collectAsStateWithLifecycle()
     val chatMessages by viewModel.activeChatMessages.collectAsStateWithLifecycle()
     val workerLat by viewModel.simulatedWorkerLat.collectAsStateWithLifecycle()
     val workerLng by viewModel.simulatedWorkerLng.collectAsStateWithLifecycle()
@@ -240,6 +241,194 @@ fun BookingTrackerScreen(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+                }
+            }
+
+            // Booking Summary Card (Total Cost, Date & Time, Payment/Status)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("booking_detail_summary_card"),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Left Column: Total Cost
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(OrangePrimary.copy(alpha = 0.12f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Payments,
+                                contentDescription = "Total Cost Icon",
+                                tint = OrangePrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "TOTAL COST",
+                                fontSize = 9.sp,
+                                color = Color.Gray,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "PKR ${currentBooking.estimatedPrice.toInt()}",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NavySecondary,
+                                modifier = Modifier.testTag("summary_card_price")
+                            )
+                        }
+                    }
+
+                    // Divider
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(32.dp)
+                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                    )
+
+                    // Middle Column: Date & Time
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1.2f)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(NavySecondary.copy(alpha = 0.08f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Event,
+                                contentDescription = "Date Icon",
+                                tint = NavySecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "SERVICE DATE",
+                                fontSize = 9.sp,
+                                color = Color.Gray,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = currentBooking.date,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NavySecondary,
+                                modifier = Modifier.testTag("summary_card_date")
+                            )
+                            Text(
+                                text = currentBooking.time,
+                                fontSize = 10.sp,
+                                color = Color.Gray
+                            )
+                        }
+                    }
+
+                    // Divider
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(32.dp)
+                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                    )
+
+                    // Right Column: Payment & Status Badge
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1.1f)
+                    ) {
+                        val paymentIcon = when (currentBooking.paymentMethod.uppercase()) {
+                            "CARD" -> Icons.Default.CreditCard
+                            "WALLET" -> Icons.Default.AccountBalanceWallet
+                            else -> Icons.Default.Payments
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color(0xFFE8F5E9), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = paymentIcon,
+                                contentDescription = "Payment Method Icon",
+                                tint = Color(0xFF2E7D32),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "METHOD",
+                                fontSize = 9.sp,
+                                color = Color.Gray,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = currentBooking.paymentMethod,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = NavySecondary,
+                                modifier = Modifier.testTag("summary_card_payment")
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 2.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(
+                                        when (currentBooking.status) {
+                                            "PENDING" -> Color(0xFFFFF3E0)
+                                            "ACCEPTED" -> Color(0xFFE3F2FD)
+                                            "ARRIVED" -> Color(0xFFEDE7F6)
+                                            "STARTED" -> Color(0xFFE0F2F1)
+                                            "COMPLETED" -> Color(0xFFE8F5E9)
+                                            "CANCELLED" -> Color(0xFFFFEBEE)
+                                            else -> Color.LightGray
+                                        }
+                                    )
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = currentBooking.status,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = when (currentBooking.status) {
+                                        "PENDING" -> Color(0xFFE65100)
+                                        "ACCEPTED" -> Color(0xFF0D47A1)
+                                        "ARRIVED" -> Color(0xFF4A148C)
+                                        "STARTED" -> Color(0xFF004D40)
+                                        "COMPLETED" -> Color(0xFF1B5E20)
+                                        "CANCELLED" -> Color(0xFFC62828)
+                                        else -> Color.DarkGray
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -557,6 +746,168 @@ fun BookingTrackerScreen(
                                 }
                             }
 
+                            // Booking History section displaying completed jobs by the same service provider
+                            val completedWorkerBookings = remember(activeWorkerBookingHistory, currentBooking.id) {
+                                activeWorkerBookingHistory.filter { 
+                                    it.status == "COMPLETED" && it.id != currentBooking.id 
+                                }
+                            }
+
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("provider_booking_history_card"),
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.History,
+                                                contentDescription = "Work History Icon",
+                                                tint = NavySecondary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Text(
+                                                text = "Provider's Experience History",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = NavySecondary
+                                            )
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(OrangePrimary.copy(alpha = 0.1f))
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                        ) {
+                                            Text(
+                                                text = "${completedWorkerBookings.size} Jobs",
+                                                color = OrangePrimary,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+
+                                    if (completedWorkerBookings.isEmpty()) {
+                                        Text(
+                                            text = "No prior completed jobs found on the platform yet.",
+                                            fontSize = 12.sp,
+                                            fontStyle = FontStyle.Italic,
+                                            color = Color.Gray,
+                                            modifier = Modifier.padding(vertical = 8.dp).testTag("empty_history_text")
+                                        )
+                                    } else {
+                                        Column(
+                                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            completedWorkerBookings.forEach { prevBooking ->
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
+                                                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                                        .padding(12.dp)
+                                                        .testTag("provider_history_item_${prevBooking.id}"),
+                                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(
+                                                            text = prevBooking.categoryName,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 13.sp,
+                                                            color = NavySecondary,
+                                                            modifier = Modifier.testTag("history_item_category_${prevBooking.id}")
+                                                        )
+                                                        Text(
+                                                            text = prevBooking.date,
+                                                            fontSize = 11.sp,
+                                                            color = Color.Gray
+                                                        )
+                                                    }
+
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        val ratingVal = prevBooking.rating ?: 5
+                                                        repeat(5) { starIdx ->
+                                                            Icon(
+                                                                imageVector = Icons.Default.Star,
+                                                                contentDescription = null,
+                                                                tint = if (starIdx < ratingVal) Color(0xFFFFB300) else Color.LightGray,
+                                                                modifier = Modifier.size(13.dp)
+                                                            )
+                                                        }
+                                                        Spacer(modifier = Modifier.width(2.dp))
+                                                        Text(
+                                                            text = "${ratingVal}.0",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = NavySecondary
+                                                        )
+                                                    }
+
+                                                    if (prevBooking.description.isNotEmpty()) {
+                                                        Text(
+                                                            text = prevBooking.description,
+                                                            fontSize = 11.sp,
+                                                            color = Color.DarkGray,
+                                                            maxLines = 2,
+                                                            modifier = Modifier.testTag("history_item_desc_${prevBooking.id}")
+                                                        )
+                                                    }
+
+                                                    if (!prevBooking.review.isNullOrEmpty()) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .background(Color.LightGray.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                                                .padding(8.dp),
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Comment,
+                                                                contentDescription = null,
+                                                                tint = OrangePrimary.copy(alpha = 0.8f),
+                                                                modifier = Modifier.size(12.dp)
+                                                            )
+                                                            Text(
+                                                                text = "\"${prevBooking.review}\"",
+                                                                fontSize = 11.sp,
+                                                                fontStyle = FontStyle.Italic,
+                                                                color = Color.DarkGray,
+                                                                modifier = Modifier.testTag("history_item_review_${prevBooking.id}")
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // 2.5 Direct Real-Time Messaging Component within Detail Screen
                             var inlineChatInput by remember { mutableStateOf("") }
                             Card(
@@ -848,19 +1199,13 @@ fun BookingTrackerScreen(
                                             )
                                         }
 
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            for (i in 1..5) {
-                                                Icon(
-                                                    imageVector = if (i <= currentBooking.rating) Icons.Default.Star else Icons.Default.StarBorder,
-                                                    contentDescription = null,
-                                                    tint = if (i <= currentBooking.rating) Color(0xFFFFB300) else Color.Gray,
-                                                    modifier = Modifier.size(24.dp)
-                                                )
-                                            }
-                                        }
+                                        StarRatingBar(
+                                            rating = currentBooking.rating,
+                                            onRatingChanged = {},
+                                            starSize = 24.dp,
+                                            interactive = false,
+                                            testTagPrefix = "completed_star_button_"
+                                        )
 
                                         if (!currentBooking.review.isNullOrBlank()) {
                                             Text(
@@ -888,24 +1233,13 @@ fun BookingTrackerScreen(
                                         )
 
                                         // Star Rating Row
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            for (i in 1..5) {
-                                                IconButton(
-                                                    onClick = { inlineRating = i },
-                                                    modifier = Modifier.size(36.dp).testTag("star_button_$i")
-                                                ) {
-                                                    Icon(
-                                                        imageVector = if (i <= inlineRating) Icons.Default.Star else Icons.Default.StarBorder,
-                                                        contentDescription = "$i Stars",
-                                                        tint = if (i <= inlineRating) Color(0xFFFFB300) else Color.Gray,
-                                                        modifier = Modifier.size(32.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
+                                        StarRatingBar(
+                                            rating = inlineRating,
+                                            onRatingChanged = { inlineRating = it },
+                                            starSize = 36.dp,
+                                            interactive = true,
+                                            testTagPrefix = "star_button_"
+                                        )
 
                                         OutlinedTextField(
                                             value = inlineReviewText,
